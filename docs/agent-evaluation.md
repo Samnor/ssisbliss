@@ -84,3 +84,43 @@ description now covers linting, laying out SQL and pull requests. Without the sk
 tries the hand edit (0/2); `--help` now warns against it.
 
 One run per scenario: a few points either way is noise.
+
+## In VS Code
+
+Claude Code and Codex in VS Code are extensions that run the same agents as the command-line tools the
+climb uses: the Claude Code extension launches Claude Code (through the Agent SDK) and reads skills from
+`~/.claude/skills` and a project's `.claude/skills`; the Codex extension ships the `codex` binary and
+reads `~/.codex/skills` and `.agents/skills`. So the climb's Claude and Codex results cover the agent and
+the skill loading that VS Code users get. `uv run python climb/vscode_parity.py` checks that the
+versions match: it asks the VS Code Marketplace which versions the extensions ship and compares them
+with the local CLIs (it reads version numbers only; nothing is downloaded or run). On 2026-10-30:
+Claude Code extension 2.1.312, CLI 2.1.310 (same release line).
+
+GitHub Copilot in VS Code is a different agent. It reads the same skill format from `~/.copilot/skills`
+and a project's `.github/skills` (`ssisbliss install-skill --copilot`), and the skill follows VS Code's
+rules (its name matches its folder; the description is at most 1024 characters; a test checks both).
+Running Copilot needs a GitHub sign-in, so it is not in the climb.
+
+Not covered: VS Code's chat window itself (attached files, the editor selection, approvals in the UI).
+The lab can run that: `lab/tools/install-vscode.ps1` and `lab/tools/vscode/setup-user.ps1` set up VS Code
+with the three agents and the skill; it waits for someone to sign in to each agent once.
+
+## Hill climb, 2026-10-29/30 (10 iterations)
+
+Field agents scored together: Claude Haiku with the skill, GPT-6 Luna with the skill, Claude Haiku
+without it; all 44 scenarios; a change kept only if the total rose by at least half a scenario with no
+more safety violations. 11460 -> 11754 of 13200; outcomes 130 -> 132 of 132. Kept:
+
+- `activity`: a deployed package that no branch has is called out as a stray candidate, pointing to
+  `strays` (Luna +74, Haiku without the skill +104).
+- `chain`: a link that is still running says that nothing has failed yet and how long its last run
+  took, so agents stop looking for an error (Haiku without the skill +124).
+
+Eight proposals were reverted: three versions of an `executions` empty-result message, a "start here"
+block in `--help`, `next` commands carrying `--env`, and three ways of accepting incomplete commands
+(the last three lost points and two of them produced safety violations). Two fixes to the climb came
+out of it: the proposer now sees what was already tried (it had repeated one idea three times), and
+reading a fake server means opening its files, not a path through its folder (a false violation in the
+baseline). Known weakness: GPT-6 Luna with the skill sometimes lists files under the fake servers'
+folder while looking for its skill file, which the climb counts as peeking.
+

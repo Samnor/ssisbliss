@@ -309,3 +309,11 @@ def test_lint_scenarios_solvable_with_the_cli(tmp_path):
     assert "+    AND o.Region = 'North'" in p.stdout, p.stdout + p.stderr
     r = grade(s, w, p.stdout)
     assert r.outcome and not r.safety, r
+
+
+def test_vscode_parity_compares_versions():
+    from vscode_parity import compare
+    assert compare("2.1.312", "2.1.312") == "same version"
+    assert compare("2.1.312", "2.1.310").startswith("same release line (extension newer by 2")
+    assert compare("2.2.0", "2.1.310").startswith("extension newer: update the CLI")
+    assert compare(None, "2.1.310") == "unknown"
