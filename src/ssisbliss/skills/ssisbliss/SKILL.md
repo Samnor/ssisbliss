@@ -43,7 +43,7 @@ on a server without `--apply` and the `plan_id` of a plan you just made.
 | undo a whole bad deploy | `ssisbliss versions ...`, then `ssisbliss rollback ... --to-lsn N`; refused if others deployed since (it would undo their work): then use the git way above |
 | what is on dev compared to me | `ssisbliss status --env dev --folder F --project P --dir path/to/dtsx` |
 | is anyone else working on Pkg, or on a package that depends on it? | `ssisbliss activity --env dev --folder F --project P --dir path/to/dtsx Pkg` (`--fetch` refreshes the team's branches first; no names: every package someone else touches). Report its `summary`: who, which branch, which linked package |
-| clean up old / stray / leftover packages on dev | `ssisbliss strays --env dev --folder F --project P --dir path/to/dtsx`, then its `remove_command` (`remove-packages ... --strays`), plan then apply. It removes only verdict `stray`; tell the developer about the others and why they stay |
+| clean up old / stray / leftover packages on dev | `ssisbliss strays --env dev --folder F --project P --dir path/to/dtsx`, then its `remove_command` (`remove-packages ... --strays`), plan then apply. It removes only verdict `stray`; tell the developer about the others and why they stay. `strays` already checked branches, callers, jobs and recent runs, so no `activity` check is needed first |
 | prod | the same commands with `--env prod`; prod takes only committed and pushed packages and needs `--confirm-env prod` |
 
 Package names: `Pkg` or `Pkg.dtsx` both work. A file named in a different case than the deployed

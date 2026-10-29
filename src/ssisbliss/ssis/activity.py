@@ -149,6 +149,18 @@ class Activity:
                     "branch": b.name, "author": _who(c.author, c.email), "yours": b.yours}
         recent = [f"lsn {v['object_version_lsn']} by {v.get('created_by')} {ago(v.get('created_time'))}".strip()
                   for v in self.versions[:3]]
+        if (self.scan and self.scan.default and main is None
+                and not any(not c.deleted for _, c in self.scan.changing(name, include_yours=True))
+                and name.lower() not in {n.lower() for n in self.local}):
+            # in no branch at all, not just a different version: a stray candidate, which `strays` decides
+            out = {"state": "not in the default branch and on no branch: a leftover, or someone's work that was never "
+                            "pushed. `ssisbliss strays` tells which (it also checks callers, jobs and recent runs); "
+                            "remove-packages --strays removes only a package it calls a stray",
+                   "recent_project_deploys": recent}
+            gone = self.scan.deleted_on_default(name)
+            if gone:
+                out["removed_from_default_branch"] = gone
+            return out
         return {"state": "differs from the default branch and from every branch: someone's unpushed or local work",
                 "recent_project_deploys": recent}
 
@@ -228,6 +240,9 @@ class Activity:
             parts.append(f"the server has the version from {s['branch']}")
         elif s.get("state", "").startswith("differs"):
             parts.append("the server has a version that is on no branch")
+        elif s.get("state", "").startswith("not in the default branch"):
+            parts.append(f"only the server has {r['package']} (no branch does): `ssisbliss strays` says whether it is a "
+                         "stray")
         for run in r["recent_runs_by_people"][:2]:
             parts.append(f"{run['by']} ran it {run['ago']} ({run['status']})")
         for d in r["depends_on"] + r["used_by"]:

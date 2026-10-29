@@ -125,7 +125,9 @@ For each package, read-only:
   the branches are as of your last fetch);
 - **server**: whose version the server has, matched by content: the default branch's, yours (your base
   record), a version from someone's branch (named), or a version on no branch at all (someone's
-  unpushed work, with the latest project deploys and who made them). SSISDB records who deployed the
+  unpushed work, with the latest project deploys and who made them). A package that no branch has at
+  all, not even in another version, is a stray candidate: the state says so and points to `strays`,
+  which decides from callers, jobs and recent runs. SSISDB records who deployed the
   project and when, but not which packages a deploy contained, so content is how the tool tells;
 - **recent_runs_by_people**: catalog executions of the package started by people in the last
   `--days` (14), leaving out SQL Agent's own runs (its service account and proxy accounts);

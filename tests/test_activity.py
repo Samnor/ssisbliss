@@ -135,6 +135,26 @@ def test_strays_with_evidence(tmp_path):
     assert out["remove_command"].endswith("--strays Stage_Old.dtsx Stage_Try.dtsx")
 
 
+def test_activity_calls_a_package_no_branch_has_a_stray_candidate_not_someones_work(tmp_path):
+    w = strays_world(tmp_path / "w")
+    code, out = cli(w, "activity", *DEV, "--dir", "STAGE", "Stage_Old", "Stage_Try", "Stage_New")
+    by = {r["package"]: r for r in out["packages"]}
+    for n in ("Stage_Old.dtsx", "Stage_Try.dtsx"):
+        assert by[n]["server"]["state"].startswith("not in the default branch and on no branch"), by[n]
+        assert "ssisbliss strays" in by[n]["server"]["state"] and "ssisbliss strays" in by[n]["summary"]
+        assert "unpushed or local work" not in json.dumps(by[n])
+    assert "replaced" in by["Stage_Old.dtsx"]["server"]["removed_from_default_branch"]["subject"]
+    assert "pr/70-new" in by["Stage_New.dtsx"]["summary"]                  # on Bob's branch: not a stray candidate
+    assert not by["Stage_New.dtsx"]["server"]["state"].startswith("not in the default branch")
+
+
+def test_activity_still_calls_another_version_of_a_released_package_someones_work(tmp_path):
+    w = sql_world(tmp_path / "w")
+    w.deploy_as("dev", COLLEAGUE, "Stage_Customer.dtsx", task_package("Stage_Customer.dtsx", revision=9))
+    code, out = cli(w, "activity", *DEV, "--dir", "STAGE", "Stage_Customer")
+    assert "unpushed or local work" in out["packages"][0]["server"]["state"]
+
+
 def test_remove_strays_removes_only_strays(tmp_path):
     w = strays_world(tmp_path / "w")
     code, plan = cli(w, "remove-packages", *DEV, "--dir", "STAGE", "--strays")
