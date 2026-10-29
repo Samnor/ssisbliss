@@ -1,5 +1,5 @@
 """A reproducible little estate for one scenario run: dev/stage/prod fake SSIS servers
-plus a developer's working folder (SSIS project files, git, onprem-ssis.toml)."""
+plus a developer's working folder (SSIS project files, git, ssisbliss.toml)."""
 from __future__ import annotations
 
 import json
@@ -44,7 +44,7 @@ class World:
 
     @property
     def state_dir(self) -> Path:
-        """The developer's ssisbliss state (base records); the runner points ONPREM_STATE_DIR here."""
+        """The developer's ssisbliss state (base records); the runner points SSISBLISS_STATE_DIR here."""
         return self.root / "state"
 
     def server_dir(self, env: str) -> Path:
@@ -140,7 +140,7 @@ class World:
             f'[environments.{env}]\nserver = "fake://{env}"\n'
             f'server_name = "{name.replace(chr(92), chr(92) * 2)}"\n{prod_rules if env == "prod" else ""}\n'
             for env, name in SERVERS.items())
-        (w.work / "onprem-ssis.toml").write_text(toml)
+        (w.work / "ssisbliss.toml").write_text(toml)
         (w.work / ".gitignore").write_text(".ssis-base.json\n*.server.dtsx\nbin/\n")
         git(w.work, "init", "-q", "-b", "main")
         git(w.work, "add", "-A")

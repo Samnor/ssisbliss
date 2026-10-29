@@ -1,8 +1,8 @@
-# End-to-end onprem-ssis run against the real SSISDB on the first lab instance, with Windows auth.
+# End-to-end ssisbliss run against the real SSISDB on the first lab instance, with Windows auth.
 # Pulls the SILVER project, edits packages, deploys them both ways, then rolls back to where it started.
 # Prints every command's JSON; ends with SMOKE PASSED or throws.
 $ErrorActionPreference = 'Stop'
-$tool = 'C:\lab\tools\venv\Scripts\onprem-ssis.exe'
+$tool = 'C:\lab\tools\venv\Scripts\ssisbliss.exe'
 $py = 'C:\lab\tools\venv\Scripts\python.exe'
 $server = "localhost,$($Lab.instances[0].port)"
 $work = 'C:\lab\work\smoke'
@@ -10,7 +10,7 @@ $backups = 'C:\lab\work\backups'
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $work, $backups | Out-Null
 Set-Location $work
-$env:ONPREM_STATE_DIR = "$work\state"   # this run's own base records
+$env:SSISBLISS_STATE_DIR = "$work\state"   # this run's own base records
 $target = @('--server', $server, '--trust-server-certificate', '--folder', 'SILVER', '--project', 'SILVER')
 $failures = @()
 
@@ -78,9 +78,9 @@ Plan-Apply 'deploy-project update' (@('deploy-project') + $target + @(
 
 # 4. No base record (a different machine) and a changed file: the plan must refuse.
 Edit-Package "$work\SILVER\Stage_Customer.dtsx" "no base $(Get-Date -Format o)"
-Rename-Item $env:ONPREM_STATE_DIR "$work\state-backup"   # no record of your version, as on a new machine
+Rename-Item $env:SSISBLISS_STATE_DIR "$work\state-backup"   # no record of your version, as on a new machine
 Ssis 'deploy-packages without base (expect refusal)' (@('deploy-packages') + $target + @('SILVER\Stage_Customer.dtsx')) @(2) | Out-Null
-Rename-Item "$work\state-backup" $env:ONPREM_STATE_DIR
+Rename-Item "$work\state-backup" $env:SSISBLISS_STATE_DIR
 
 # 5. Roll back to the starting version.
 if ($startLsn) {

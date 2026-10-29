@@ -7,7 +7,7 @@ measured and what the latest measurement shows.
 
 `climb/` runs field scenarios: an agent gets a developer's request in a realistic world (fake
 dev/stage/prod SSIS catalogs and SQL Agent, a git checkout with a team remote, PR branches and
-worktrees) and uses the real `onprem-ssis` / `onprem-agent` CLIs. Each scenario has a trap
+worktrees) and uses the real `ssisbliss` CLI. Each scenario has a trap
 (a colleague's change, a stale build, prod rules, a race, a chain that is only still running).
 A deterministic grader scores the end state:
 
@@ -26,7 +26,7 @@ against the real SQL Server 2019 in the lab (`lab/lab.py verify`).
 
 ## The ssisbliss skill
 
-`onprem-ssis install-skill` installs a skill for Claude Code and Codex (user level, nothing in
+`ssisbliss install-skill` installs a skill for Claude Code and Codex (user level, nothing in
 the SSIS repository): the rules, a task-to-command table and the diagnosis path. The matrix runs
 each model with and without it.
 
@@ -57,5 +57,13 @@ Luna with the skill at 5/7, and showed two gaps in the tools themselves:
 
 The run before these changes (30 scenarios, 4 suites): Sonnet 30/30 (114 commands; 64 with
 the skill), Haiku 28/30 (184; 30/30 and 95 with the skill), Luna 26/30 (184; 30/30 and 171).
+
+After merging the two commands into one `ssisbliss` command (2026-10-29), the small models were
+run again on all 37 scenarios: Haiku 37/37 with and without the skill; GPT-6 Luna 35/37 without and
+36/37 with it. One miss was a real inconsistency (`status` reported a file named in another case as
+a new package, while `deploy-packages` deploys it as the existing one; fixed), one a refusal that
+did not name the colleague up front (refused plans now start with `refused_because`). Re-run twice
+after the fixes, the remaining Luna miss without the skill is the plan-id race (1/2), where it
+sometimes declines to apply a fresh plan it was told it can apply.
 
 One run per scenario: a few points either way is noise.

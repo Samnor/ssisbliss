@@ -1,10 +1,10 @@
-# Building SSIS projects without Visual Studio (`onprem-ssis build`)
+# Building SSIS projects without Visual Studio (`ssisbliss build`)
 
 ```bash
-onprem-ssis build STAGE/STAGE.dtproj                        # -> STAGE/bin/Development/STAGE.ispac
-onprem-ssis build STAGE/STAGE.dtproj -c Release --out x.ispac
-onprem-ssis deploy-project --env dev --folder STAGE --project STAGE --dtproj STAGE/STAGE.dtproj --only Load_Customer
-onprem-ssis deploy-project --env dev --folder STAGE --project STAGE --dtproj STAGE/STAGE.dtproj --all
+ssisbliss build STAGE/STAGE.dtproj                        # -> STAGE/bin/Development/STAGE.ispac
+ssisbliss build STAGE/STAGE.dtproj -c Release --out x.ispac
+ssisbliss deploy-project --env dev --folder STAGE --project STAGE --dtproj STAGE/STAGE.dtproj --only Load_Customer
+ssisbliss deploy-project --env dev --folder STAGE --project STAGE --dtproj STAGE/STAGE.dtproj --all
 ```
 
 `build` turns a Visual Studio SSIS project (project deployment model) into the `.ispac` that
@@ -18,7 +18,7 @@ SSISBuild.exe 1.0, on projects created with the SSIS object model and stored the
 Studio stores them (`lab/tools/build-corpus.ps1`; the projects and both builds are the test
 fixtures in `tests/fixtures/build/`).
 
-| Step | Visual Studio | SSISBuild.exe | `onprem-ssis build` |
+| Step | Visual Studio | SSISBuild.exe | `ssisbliss build` |
 |---|---|---|---|
 | Manifest | from the `.dtproj`, regenerated | from the `.dtproj` as stored | from the `.dtproj` |
 | Package metadata in the manifest (description, version, protection, package parameters) | refreshed from each `.dtsx` | **left stale** if a package was edited outside Visual Studio (a merge, a text editor) | refreshed from each `.dtsx`, and reported in `refreshed_metadata` |
@@ -31,7 +31,7 @@ fixtures in `tests/fixtures/build/`).
 ## On the server
 
 Each test project deployed to SQL Server 2019 three times, as built by Visual Studio,
-SSISBuild and `onprem-ssis build` (`lab/tools/compare_build.py`), comparing what SSISDB
+SSISBuild and `ssisbliss build` (`lab/tools/compare_build.py`), comparing what SSISDB
 records (`catalog.packages`, `catalog.object_parameters`):
 
 - **Packages** (names, descriptions, versions, entry points): identical to Visual Studio's
@@ -62,20 +62,20 @@ package, **Deploy Package**. Measured on SQL Server 2019 with `lab/tools/compare
 
 Because of (3), whether the wizard is given the source `.dtsx` or Rebuild's re-saved copy, the
 server ends up with the same package. The lab deployed one changed package four ways (wizard
-from the source folder, wizard from `obj/Development`, `onprem-ssis deploy-packages`,
-`onprem-ssis deploy-project --dtproj --only`): the stored project was identical each time, and
+from the source folder, wizard from `obj/Development`, `ssisbliss deploy-packages`,
+`ssisbliss deploy-project --dtproj --only`): the stored project was identical each time, and
 only the deployed package changed.
 
-So the `onprem-ssis` equivalent of Rebuild + Deploy Package is:
+So the `ssisbliss` equivalent of Rebuild + Deploy Package is:
 
 ```bash
-onprem-ssis deploy-packages --env dev --folder STAGE --project STAGE STAGE/Load_Customer.dtsx
+ssisbliss deploy-packages --env dev --folder STAGE --project STAGE STAGE/Load_Customer.dtsx
 # or, building from the .dtproj first (configuration applied, metadata refreshed):
-onprem-ssis deploy-project --env dev --folder STAGE --project STAGE --dtproj STAGE/STAGE.dtproj --only Load_Customer
+ssisbliss deploy-project --env dev --folder STAGE --project STAGE --dtproj STAGE/STAGE.dtproj --only Load_Customer
 ```
 
 with the plan, overwrite protection and verification Visual Studio does not have.
-`onprem-ssis` compares packages by a content hash that ignores what the server rewrites in (3),
+`ssisbliss` compares packages by a content hash that ignores what the server rewrites in (3),
 so a colleague's real change is still caught but the server's own re-save of the other
 packages is not mistaken for one.
 
@@ -94,11 +94,11 @@ server. What it shows, every run:
   packages; on the server that is one `catalog.deploy_packages` call with that one package.
 - Only `Load_B` changes on the server, it equals the edited source, and the project gets one new
   version. `Load_A` and every other package stay as they were, as they do for
-  `onprem-ssis deploy-packages`.
+  `ssisbliss deploy-packages`.
 
 ## Deploying like Visual Studio
 
-| Visual Studio action | What it does on the server | `onprem-ssis` |
+| Visual Studio action | What it does on the server | `ssisbliss` |
 |---|---|---|
 | Project > Deploy | `catalog.deploy_project` with the whole build: every package replaced, packages only on the server removed, no check for others' changes ([deploy-comparison.md](deploy-comparison.md)) | `deploy-project --all`: every package in the build, each checked for others' changes (`--overwrite` to replace one knowingly); packages only on the server are kept |
 | Deploy Package (selected packages) | the deployment wizard in package mode with the project folder as source: one `catalog.deploy_packages` call with those packages (observed in the UI, above) | `deploy-packages` or `deploy-project --only`: `catalog.deploy_packages` with those packages, after a plan with the overwrite checks |

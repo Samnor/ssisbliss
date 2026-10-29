@@ -3,7 +3,7 @@
 Used by the unit tests and by the hill climb. The CLI reaches it with
 `--server fake://<directory>`: state lives in <directory>/state.json plus one .ispac
 per stored project version, and every change is written back immediately. The caller's
-identity comes from ONPREM_FAKE_USER (default LAB\\me).
+identity comes from SSISBLISS_FAKE_USER (default LAB\\me).
 """
 from __future__ import annotations
 
@@ -33,10 +33,10 @@ def _clock(tick: float) -> str:
 
 
 def fake_location(server: str) -> Path:
-    """`fake://<path>`, or `fake://<name>` under $ONPREM_FAKE_ROOT (the climb keeps its servers' location out of
-    onprem-ssis.toml, where a real estate has a server name and nothing to browse)."""
+    """`fake://<path>`, or `fake://<name>` under $SSISBLISS_FAKE_ROOT (the climb keeps its servers' location out of
+    ssisbliss.toml, where a real estate has a server name and nothing to browse)."""
     spec = server.removeprefix("fake://")
-    root = os.environ.get("ONPREM_FAKE_ROOT")
+    root = os.environ.get("SSISBLISS_FAKE_ROOT")
     return Path(root) / spec if root and "/" not in spec and "\\" not in spec else Path(spec)
 
 
@@ -181,7 +181,7 @@ class FakeCatalog:
         state = json.loads((path / "state.json").read_text())
         with open(path / "access.log", "a") as f:   # lets graders see the server was reached
             f.write("load\n")
-        c = cls(state["server_name"], state["major"], os.environ.get("ONPREM_FAKE_USER", "LAB\\me"))
+        c = cls(state["server_name"], state["major"], os.environ.get("SSISBLISS_FAKE_USER", "LAB\\me"))
         c.running, c.next_lsn, c.folders = state["running"], state["next_lsn"], set(state["folders"])
         c.calls = state.get("calls", [])
         for p in state["projects"]:

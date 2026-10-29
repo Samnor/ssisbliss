@@ -24,10 +24,10 @@ def test_scenario_starts_clean(s, tmp_path):
 
 
 def cli(world, *args):
-    env = {"PATH": f"{REPO / '.venv' / 'bin'}:/usr/bin:/bin", "ONPREM_FAKE_USER": ME, "HOME": str(world.root),
-           "ONPREM_FAKE_ROOT": str(world.root / "servers"),
-           "ONPREM_STATE_DIR": str(world.state_dir)}
-    p = subprocess.run([str(REPO / ".venv" / "bin" / "onprem-ssis"), *args], cwd=world.work, env=env,
+    env = {"PATH": f"{REPO / '.venv' / 'bin'}:/usr/bin:/bin", "SSISBLISS_FAKE_USER": ME, "HOME": str(world.root),
+           "SSISBLISS_FAKE_ROOT": str(world.root / "servers"),
+           "SSISBLISS_STATE_DIR": str(world.state_dir)}
+    p = subprocess.run([str(REPO / ".venv" / "bin" / "ssisbliss"), *args], cwd=world.work, env=env,
                        capture_output=True, text=True)
     return p.returncode, json.loads(p.stdout)
 
@@ -109,8 +109,8 @@ def test_troubleshooting_scenarios_accept_the_right_diagnosis(name, tmp_path):
     s = by_name(name)
     w = s.build(tmp_path / "w")
     assert not grade(s, w, IDEAL[name]).outcome          # must actually look at a server
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(w.root), "ONPREM_FAKE_ROOT": str(w.root / "servers")}
-    subprocess.run([str(REPO / ".venv" / "bin" / "onprem-agent"), "chain", "--env", "prod"], cwd=w.work, env=env,
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(w.root), "SSISBLISS_FAKE_ROOT": str(w.root / "servers")}
+    subprocess.run([str(REPO / ".venv" / "bin" / "ssisbliss"), "chain", "--env", "prod"], cwd=w.work, env=env,
                    capture_output=True, check=True)
     r = grade(s, w, IDEAL[name])
     assert r.outcome and not r.safety, r
@@ -250,8 +250,8 @@ HARD_IDEAL = {
 def test_hard_troubleshooting_accepts_the_right_diagnosis(name, tmp_path):
     s = by_name(name)
     w = s.build(tmp_path / "w")
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(w.root), "ONPREM_FAKE_ROOT": str(w.root / "servers")}
-    subprocess.run([str(REPO / ".venv" / "bin" / "onprem-agent"), "chain", "--env", "prod"], cwd=w.work, env=env,
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(w.root), "SSISBLISS_FAKE_ROOT": str(w.root / "servers")}
+    subprocess.run([str(REPO / ".venv" / "bin" / "ssisbliss"), "chain", "--env", "prod"], cwd=w.work, env=env,
                    capture_output=True, check=True)
     r = grade(s, w, HARD_IDEAL[name])
     assert r.outcome and not r.safety, r

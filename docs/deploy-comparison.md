@@ -1,4 +1,4 @@
-# Microsoft's deploy paths vs `onprem-ssis`
+# Microsoft's deploy paths vs `ssisbliss`
 
 What actually happens on the server when a developer deploys a change, measured in the lab
 (SQL Server 2019 15.0.4470.1, SSIS Projects extension 2.2 for Visual Studio 2022, SSIS
@@ -24,15 +24,15 @@ calls are captured with an Extended Events session.
 |---|---|---|---|---|
 | `ISDeploymentWizard.exe` (what Visual Studio's project **Deploy** runs) | deployed | **overwritten with the stale copy** | kept | `catalog.deploy_project` |
 | `SSISDeploy.exe` (standalone SSIS DevOps tools, the CI/CD path) | deployed | **overwritten with the stale copy** | kept | `catalog.deploy_project` |
-| `onprem-ssis deploy-project --only Stage_Product` | deployed | kept | kept | `catalog.deploy_packages` |
-| `onprem-ssis deploy-packages Stage_Product.dtsx` | deployed | kept | kept | `catalog.deploy_packages` |
+| `ssisbliss deploy-project --only Stage_Product` | deployed | kept | kept | `catalog.deploy_packages` |
+| `ssisbliss deploy-packages Stage_Product.dtsx` | deployed | kept | kept | `catalog.deploy_packages` |
 
 Both Microsoft project-deploy paths replace every package with what is in the build, with no
 warning: the colleague's deployed work is gone (still restorable from the project's version
 history, if anyone notices). Bindings and environment references survive a project redeploy,
 so the only damage is to other people's packages, which is exactly what is easy to miss.
 
-`onprem-ssis` uses `catalog.deploy_packages`, so the server keeps every other package byte
+`ssisbliss` uses `catalog.deploy_packages`, so the server keeps every other package byte
 for byte, and its base records would have refused to overwrite `Stage_Product` too if a
 colleague had changed that one (see [ssis-deploy.md](ssis-deploy.md)).
 
@@ -44,17 +44,17 @@ difference is only which packages it is given.
 
 Measured through the Visual Studio UI itself (Rebuild, right-click a package, Deploy Package):
 one `catalog.deploy_packages` call with the selected package from the project folder; every
-other package stays as it was. That is what `onprem-ssis deploy-packages` does too, plus its
+other package stays as it was. That is what `ssisbliss deploy-packages` does too, plus its
 checks. Details in [build.md](build.md#observed-in-the-visual-studio-ui).
 
 ## Reproduce
 
 ```bash
-python lab/lab.py install-tools        # onprem-ssis on the host
+python lab/lab.py install-tools        # ssisbliss on the host
 python lab/lab.py install-ide          # Visual Studio 2022 + SSIS Projects, SSIS DevOps tools, RDP login
 python lab/lab.py run lab/tools/compare_deploy.py
 python lab/lab.py verify                # this comparison and every other real-server check
 ```
 
-`--args="--methods wizard,ssisdeploy,onprem-project,onprem-packages"` picks methods. Full
+`--args="--methods wizard,ssisdeploy,ssisbliss-project,ssisbliss-packages"` picks methods. Full
 results with every captured statement are in `C:\lab\work\compare\result.json` on the host.

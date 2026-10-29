@@ -7,7 +7,7 @@ from ssisbliss.ssis.catalog import SqlCatalog, connection_string
 from ssisbliss.ssis.dtsx import package_sha256
 from ssisbliss.ssis.ispac import Ispac
 
-XE, APP = "onprem_vsui", "onprem-compare"
+XE, APP = "ssisbliss_vsui", "ssisbliss-compare"
 c = SqlCatalog(connection_string("localhost,14331", trust_server_certificate=True, app=APP))
 cur = c.conn.cursor()
 if sys.argv[1] == "start":

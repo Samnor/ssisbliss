@@ -42,6 +42,6 @@ jobs:
         run: |
           uv venv /tmp/v
           uv pip install --python /tmp/v/bin/python dist/*.whl
-          /tmp/v/bin/onprem-ssis --help > /dev/null
-          /tmp/v/bin/onprem-agent --help > /dev/null
-          /tmp/v/bin/onprem-ssis install-skill --print | grep -q "name: ssisbliss"
+          /tmp/v/bin/ssisbliss --help > /dev/null
+          /tmp/v/bin/ssisbliss chain --help > /dev/null
+          /tmp/v/bin/ssisbliss install-skill --print | grep -q "name: ssisbliss"

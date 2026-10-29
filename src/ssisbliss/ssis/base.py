@@ -4,7 +4,7 @@ Written by `pull` and after every successful deploy; deploy compares the server'
 package with the base to tell "I am replacing what I started from" from "I am about to
 overwrite someone else's work".
 
-Kept per user, outside the repository: `$ONPREM_STATE_DIR` (default ~/.ssisbliss/state),
+Kept per user, outside the repository: `$SSISBLISS_STATE_DIR` (default ~/.ssisbliss/state),
 one file per repository. A repository is identified by its `origin` URL, or by git's common
 directory when it has no remote, so every worktree, branch and clone of the same repository
 shares one record of your own deploys. Folders outside git are keyed by their path. A
@@ -26,7 +26,7 @@ def target_key(server: str, folder: str, project: str) -> str:
 
 
 def state_dir(state: Path | None = None) -> Path:
-    return state or Path(os.environ.get("ONPREM_STATE_DIR", "~/.ssisbliss/state")).expanduser()
+    return state or Path(os.environ.get("SSISBLISS_STATE_DIR", "~/.ssisbliss/state")).expanduser()
 
 
 def _git(directory: Path, *args: str) -> str:

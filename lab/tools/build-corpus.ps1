@@ -1,6 +1,6 @@
 # Reference builds: Visual Studio-format SSIS projects (.dtproj + .sln + files), each built with
 # devenv.com (what Visual Studio's Build does) and SSISBuild.exe (Microsoft's standalone build),
-# so onprem-ssis build can be compared with both. Results: C:\lab\work\corpus\<variant>\.
+# so ssisbliss build can be compared with both. Results: C:\lab\work\corpus\<variant>\.
 # Projects are created with the SSIS object model (ManagedDTS), the same one Visual Studio uses,
 # and wrapped in a .dtproj the way Visual Studio stores them.
 $ErrorActionPreference = 'Stop'

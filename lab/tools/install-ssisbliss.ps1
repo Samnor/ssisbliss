@@ -1,4 +1,4 @@
-# Install Python and this repo's wheel on the lab host so onprem-ssis can run with Windows auth.
+# Install Python and this repo's wheel on the lab host so ssisbliss can run with Windows auth.
 # lab.py install-tools uploads the wheel to the lab bucket and sets $Lab.wheel_key.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -29,4 +29,4 @@ if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
 $drivers = (Get-OdbcDriver -Platform '64-bit' | Where-Object Name -like 'ODBC Driver * for SQL Server').Name -join ', '
-Write-Output "onprem-ssis installed at $tools\venv\Scripts\onprem-ssis.exe; ODBC drivers: $drivers"
+Write-Output "ssisbliss installed at $tools\venv\Scripts\ssisbliss.exe; ODBC drivers: $drivers"

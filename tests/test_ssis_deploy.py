@@ -388,7 +388,7 @@ def test_cli_pull_never_overwrites_local_work(cat, tmp_path, monkeypatch, capsys
 
 
 def test_cli_env_server_name_mismatch(cat, tmp_path, monkeypatch, capsys):
-    cfg = tmp_path / "onprem-ssis.toml"
+    cfg = tmp_path / "ssisbliss.toml"
     cfg.write_text('[environments.prod]\nserver = "prod"\nserver_name = "PRODSQL\\\\SQL01"\n')
     f = tmp_path / "Load_A.dtsx"
     f.write_bytes(dtsx("Load_A.dtsx", revision=2))
@@ -399,7 +399,7 @@ def test_cli_env_server_name_mismatch(cat, tmp_path, monkeypatch, capsys):
 
 
 def test_cli_prod_uncommitted_tells_agent_not_to_commit(cat, tmp_path, monkeypatch, capsys):
-    cfg = tmp_path / "onprem-ssis.toml"
+    cfg = tmp_path / "ssisbliss.toml"
     cfg.write_text('[environments.prod]\nserver = "prod"\nrequire_git_committed = true\n')
     f = tmp_path / "Load_A.dtsx"
     f.write_bytes(dtsx("Load_A.dtsx", revision=2))
@@ -513,7 +513,7 @@ def test_require_git_pushed(cat, tmp_path, monkeypatch, capsys):
     _git(work, "commit", "-q", "-am", "another change")
     assert "not pushed" in git_unpushed([f])[0]
 
-    cfg = work / "onprem-ssis.toml"
+    cfg = work / "ssisbliss.toml"
     cfg.write_text('[environments.prod]\nserver = "prod"\nrequire_git_pushed = true\n')
     code, plan = run_cli(monkeypatch, capsys, cat, "deploy-packages", "--env", "prod", "--config", str(cfg),
                          "--folder", F, "--project", P, str(f), "--overwrite", "Load_A.dtsx")
@@ -583,13 +583,13 @@ def test_legacy_folder_records_are_still_read(tmp_path):
 
 def test_user_level_environments_file(tmp_path, monkeypatch):
     from ssisbliss.ssis.config import load_environment
-    user = tmp_path / "home" / "onprem-ssis.toml"
+    user = tmp_path / "home" / "ssisbliss.toml"
     user.parent.mkdir()
     user.write_text('[environments.dev]\nserver = "devsql01"\n')
-    monkeypatch.setenv("ONPREM_SSIS_CONFIG", str(user))
-    monkeypatch.chdir(tmp_path)                      # no onprem-ssis.toml here or above
+    monkeypatch.setenv("SSISBLISS_CONFIG", str(user))
+    monkeypatch.chdir(tmp_path)                      # no ssisbliss.toml here or above
     assert load_environment("dev").server == "devsql01"
-    (tmp_path / "onprem-ssis.toml").write_text('[environments.dev]\nserver = "repo-dev"\n')
+    (tmp_path / "ssisbliss.toml").write_text('[environments.dev]\nserver = "repo-dev"\n')
     assert load_environment("dev").server == "repo-dev"   # a file in the repository still wins
 
 
@@ -781,3 +781,25 @@ def test_rollback_ignores_a_colleagues_deploy_that_a_restore_already_undid(cat, 
     cat.restore_project(F, P, first)                      # their deploy was rolled back
     cat.deploy_packages(F, P, [("Load_A.dtsx", dtsx("Load_A.dtsx", revision=2))])   # then mine
     assert not plan_rollback(cat, F, P, first).errors
+
+
+def test_status_matches_a_file_named_in_another_case_to_the_deployed_package(cat, tmp_path, monkeypatch, capsys):
+    t = ["--server", "x", "--folder", F, "--project", P]
+    run_cli(monkeypatch, capsys, cat, "pull", *t, "--out", str(tmp_path))
+    (tmp_path / "Load_A.dtsx").unlink()
+    (tmp_path / "load_a.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=3))
+    code, out = run_cli(monkeypatch, capsys, cat, "status", *t, "--dir", str(tmp_path))
+    row = next(r for r in out["packages"] if r["package"] == "Load_A.dtsx")
+    assert row["file"] == "load_a.dtsx" and row["local"] == "differs from the server"
+    assert not any(r["package"] == "load_a.dtsx" for r in out["packages"])
+    assert out["your_changes"] == ["Load_A.dtsx"] and out["deploy_your_changes"].endswith("load_a.dtsx")
+
+
+def test_a_refused_plan_starts_with_why(cat, tmp_path, monkeypatch, capsys):
+    t = ["--server", "x", "--folder", F, "--project", P]
+    run_cli(monkeypatch, capsys, cat, "pull", *t, "--out", str(tmp_path))
+    cat.someone_else_deploys(F, P, "Load_A.dtsx", dtsx("Load_A.dtsx", revision=8))
+    (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=2))
+    code, plan = run_cli(monkeypatch, capsys, cat, "deploy-packages", *t, str(tmp_path / "Load_A.dtsx"))
+    assert code == EXIT_REFUSED and next(iter(plan)) == "refused_because"
+    assert "LAB\\bob" in plan["refused_because"][0]

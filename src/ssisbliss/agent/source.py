@@ -22,7 +22,7 @@ class SqlAgent:
         import pyodbc
 
         self.conn = pyodbc.connect(connection_string(server, sql_user, trust_server_certificate, database="msdb",
-                                                     app="onprem-agent"), autocommit=True, timeout=15)
+                                                     app="ssisbliss"), autocommit=True, timeout=15)
 
     def _rows(self, sql: str, *params: Any) -> list[dict]:
         cur = self.conn.cursor()

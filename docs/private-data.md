@@ -4,7 +4,7 @@ This repository is public. Real packages, server and client names, and anything 
 on your machine, in a folder git never sees:
 
 ```
-private/                  gitignored (or set ONPREM_PRIVATE_DIR to a folder outside the repo)
+private/                  gitignored (or set SSISBLISS_PRIVATE_DIR to a folder outside the repo)
   denylist.txt            terms that must never be committed or pushed
   fixtures/               real .dtsx, .ispac and .dtproj files from the field
   notes/                  anything else

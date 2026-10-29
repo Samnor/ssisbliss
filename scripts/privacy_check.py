@@ -7,7 +7,7 @@ author and committer identities) against:
 - built-in patterns that never belong in this repository: e-mail addresses other than
   placeholder and noreply ones, AWS account ids, access keys and private keys, AWS-generated
   host names, home-directory paths;
-- your own denylist, `private/denylist.txt` (or $ONPREM_PRIVATE_DIR/denylist.txt): names of
+- your own denylist, `private/denylist.txt` (or $SSISBLISS_PRIVATE_DIR/denylist.txt): names of
   clients, servers, databases, people, your own name and e-mail. One term per line, matched
   case-insensitively; `re:` starts a regular expression; `#` starts a comment. The denylist is
   gitignored and is never printed in full.
@@ -43,7 +43,7 @@ CHECKER = "scripts/privacy_check.py"     # its own patterns would match themselv
 
 
 def private_dir() -> Path:
-    return Path(os.environ.get("ONPREM_PRIVATE_DIR") or REPO / "private")
+    return Path(os.environ.get("SSISBLISS_PRIVATE_DIR") or REPO / "private")
 
 
 def denylist() -> list[tuple[str, re.Pattern]]:

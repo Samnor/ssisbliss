@@ -7,7 +7,7 @@ from ssisbliss.ssis.catalog import SqlCatalog, connection_string
 from ssisbliss.ssis.deploy import plan_rollback, undone_versions
 
 SERVER, F, P = "localhost,14331", "ROLLBACK", "SILVER"
-c = SqlCatalog(connection_string(SERVER, trust_server_certificate=True, app="onprem-compare"))
+c = SqlCatalog(connection_string(SERVER, trust_server_certificate=True, app="ssisbliss-compare"))
 c.conn.cursor().execute(f"IF NOT EXISTS (SELECT 1 FROM catalog.folders WHERE name = N'{F}') EXEC catalog.create_folder @folder_name = N'{F}'")
 if c.project(F, P):
     c.conn.cursor().execute("EXEC catalog.delete_project @folder_name = ?, @project_name = ?", F, P)

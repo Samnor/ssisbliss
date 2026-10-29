@@ -6,7 +6,7 @@ from ssisbliss.ssis.catalog import SqlCatalog, connection_string
 from ssisbliss.ssis.ispac import Ispac
 
 CORPUS, PROJ = Path(r"C:\lab\work\corpus\configs"), Path(r"C:\lab\work\vsui\Corpus")
-c = SqlCatalog(connection_string("localhost,14331", trust_server_certificate=True, app="onprem-compare"))
+c = SqlCatalog(connection_string("localhost,14331", trust_server_certificate=True, app="ssisbliss-compare"))
 # Visual Studio from a previous run holds the project's files open; deploy-package.ps1 starts it again.
 subprocess.run(["taskkill", "/IM", "devenv.exe", "/F"], capture_output=True)
 for attempt in range(10):

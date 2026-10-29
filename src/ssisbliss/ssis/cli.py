@@ -1,4 +1,4 @@
-"""onprem-ssis: safe SSIS catalog deployment for people and agents.
+"""ssisbliss: safe SSIS catalog deployment and SQL Agent troubleshooting for people and agents.
 
 Every command prints one JSON document on stdout. Nothing changes on a server
 without --apply and the plan_id of a reviewed plan.
@@ -151,6 +151,11 @@ def cmd_status(a) -> int:
     folder = Path(a.dir)
     server = Ispac(cat.get_project(a.folder, a.project)).package_hashes()
     local = {f.name: f for f in folder.glob("*.dtsx") if not f.name.endswith(".server.dtsx")}
+    # Catalog package names ignore case (as deploy-packages does): stage_customer.dtsx is the deployed Stage_Customer.dtsx.
+    for name in [n for n in local if n not in server]:
+        same = [n for n in server if n.lower() == name.lower() and n not in local]
+        if len(same) == 1:
+            local[same[0]] = local.pop(name)
     key = base.target_key(info.server_name, a.folder, a.project)
     records = base.entries([folder / n for n in set(server) | set(local)], key)
     rows = []
@@ -166,6 +171,8 @@ def cmd_status(a) -> int:
         else:
             row["server"] = f"changed since your version (lsn {rec['lsn']})"
             row["changed_by"] = deploys_since(cat.versions(p.project_id), rec["lsn"])
+        if name in local and local[name].name != name:
+            row["file"] = local[name].name   # deployed under the catalog's spelling of the name
         if name in local:
             row["local"] = ("same as the server" if name in server and package_sha256(local[name].read_bytes()) == server[name]
                             else "differs from the server" if name in server else "only here (new package)")
@@ -186,8 +193,8 @@ def cmd_status(a) -> int:
     if mine:
         target = f"--env {env.name}" if env.name else f'--server "{env.server}"'
         new = " --allow-new" if any(r["server"] == "not deployed" for r in rows if r["package"] in mine) else ""
-        summary["deploy_your_changes"] = (f'onprem-ssis deploy-packages {target} --folder "{a.folder}" --project '
-                                          f'"{a.project}"{new} ' + " ".join(str(folder / n) for n in mine))
+        summary["deploy_your_changes"] = (f'ssisbliss deploy-packages {target} --folder "{a.folder}" --project '
+                                          f'"{a.project}"{new} ' + " ".join(str(local[n]) for n in mine))
     if theirs:
         summary["changed_by_others_too"] = theirs
     return emit({"target": key, "lsn": p.object_version_lsn, "last_deployed_by": p.deployed_by,
@@ -343,7 +350,7 @@ def _other_local_changes(plan, files: list[Path], key: str) -> None:
     if changed:
         plan.check("other_local_changes", "warn",
                    f"also changed here since your version but not in this deploy: {', '.join(o.name for o in changed)}. "
-                   f"If the developer asked to deploy all their changes, add them (onprem-ssis status lists every one)")
+                   f"If the developer asked to deploy all their changes, add them (ssisbliss status lists every one)")
 
 
 def _ispac_base_dirs(ispac: Path) -> list[Path]:
@@ -506,16 +513,16 @@ Read-only: inspect, versions, outline, executions (failed packages: executions -
 """
 
 def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="onprem-ssis", description=__doc__, epilog=RECIPES,
+    p = argparse.ArgumentParser(prog="ssisbliss", description=__doc__, epilog=RECIPES,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def target(s, project=True, required=True):
         g = s.add_argument_group("target")
-        g.add_argument("--env", help="environment name from onprem-ssis.toml")
+        g.add_argument("--env", help="environment name from ssisbliss.toml")
         g.add_argument("--server", help="ODBC server, e.g. host\\instance or host,port")
-        g.add_argument("--config", help="path to onprem-ssis.toml")
-        g.add_argument("--sql-user", help="SQL login; password from ONPREM_SQL_PASSWORD")
+        g.add_argument("--config", help="path to ssisbliss.toml")
+        g.add_argument("--sql-user", help="SQL login; password from SSISBLISS_SQL_PASSWORD")
         g.add_argument("--trust-server-certificate", action="store_true")
         g.add_argument("--folder", required=required)
         if project:
@@ -526,8 +533,8 @@ def parser() -> argparse.ArgumentParser:
         g.add_argument("--apply", action="store_true", help="make the change (default: plan only)")
         g.add_argument("--plan-id", help="plan_id from the reviewed plan")
         g.add_argument("--confirm-env", help="required for environments with confirm = true")
-        g.add_argument("--backup-dir", default=os.environ.get("ONPREM_SSIS_BACKUP_DIR", "~/.ssisbliss/backups"),
-                       help="where pre-deploy backups go (env ONPREM_SSIS_BACKUP_DIR)")
+        g.add_argument("--backup-dir", default=os.environ.get("SSISBLISS_BACKUP_DIR", "~/.ssisbliss/backups"),
+                       help="where pre-deploy backups go (env SSISBLISS_BACKUP_DIR)")
         g.add_argument("--allow-running", action="store_true", help="deploy while executions are running")
 
     s = sub.add_parser("inspect", help="list folders, projects, packages and bindings")
@@ -631,6 +638,9 @@ def parser() -> argparse.ArgumentParser:
                    help="restore even though others deployed after that version (undoes their deploys)")
     applying(s)
     s.set_defaults(fn=cmd_rollback)
+
+    from ..agent.cli import add_commands   # SQL Agent: jobs, chain, history
+    add_commands(sub)
     return p
 
 

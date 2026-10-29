@@ -1,4 +1,4 @@
-# Safe SSIS deployment (`onprem-ssis`)
+# Safe SSIS deployment (`ssisbliss`)
 
 Two deployment tools for the SSIS catalog (SSISDB), built so a person **or an LLM agent**
 can deploy with code only, with guard rails that make the dangerous mistakes impossible
@@ -27,9 +27,9 @@ Every command is read-only unless `--apply` is given, and `--apply` requires the
 from a plan run:
 
 ```bash
-onprem-ssis deploy-packages --server "host,14331" --folder STAGE --project STAGE Load_Customer.dtsx
+ssisbliss deploy-packages --server "host,14331" --folder STAGE --project STAGE Load_Customer.dtsx
 # -> JSON plan with checks, changes, retained packages and "plan_id": "3f9c..."
-onprem-ssis deploy-packages --server "host,14331" --folder STAGE --project STAGE Load_Customer.dtsx \
+ssisbliss deploy-packages --server "host,14331" --folder STAGE --project STAGE Load_Customer.dtsx \
     --apply --plan-id 3f9c...
 ```
 
@@ -45,9 +45,9 @@ The typical estate: several developers deploy work-in-progress packages to dev a
 again and again, and git only gets the package when it is ready for prod. The server, not
 git, holds the latest truth, so the biggest risk is overwriting a colleague's deployed work.
 
-**Overwrite protection.** `onprem-ssis` remembers, per user, which deployed version of each
+**Overwrite protection.** `ssisbliss` remembers, per user, which deployed version of each
 package (and project parameter / connection manager) you started from: written by `pull` and
-after each of your own deploys, kept in your state folder (`$ONPREM_STATE_DIR`, default
+after each of your own deploys, kept in your state folder (`$SSISBLISS_STATE_DIR`, default
 `~/.ssisbliss/state`), never in the repository. Records are per repository (its `origin`
 URL, else its git directory), so every worktree, PR branch and clone of the same repository
 knows your own deploys. Updating a package whose server copy no longer matches your version
@@ -64,15 +64,15 @@ name the package with `--overwrite`. Iterating on your own deploys never trips i
 (`.ssis-base.json` files next to the packages, from earlier versions, are still read.)
 
 ```bash
-onprem-ssis pull --env dev --folder STAGE --project STAGE --out ./STAGE --packages Load_Customer.dtsx
+ssisbliss pull --env dev --folder STAGE --project STAGE --out ./STAGE --packages Load_Customer.dtsx
 # local file missing or identical -> written/recorded
 # local file differs -> server copy saved as Load_Customer.server.dtsx, your file untouched
-onprem-ssis pull ... --mark-merged Load_Customer.dtsx   # after merging the server copy into yours
+ssisbliss pull ... --mark-merged Load_Customer.dtsx   # after merging the server copy into yours
 ```
 
-**Environments.** `onprem-ssis.toml` names the servers so nobody types a prod server string by
+**Environments.** `ssisbliss.toml` names the servers so nobody types a prod server string by
 accident. It is read from the working folder or a parent, else from your own
-`~/.config/ssisbliss/onprem-ssis.toml` (or `$ONPREM_SSIS_CONFIG`), so nothing has to be
+`~/.config/ssisbliss/ssisbliss.toml` (or `$SSISBLISS_CONFIG`), so nothing has to be
 added to the SSIS repository:
 
 ```toml
@@ -164,7 +164,7 @@ Other packages and project items on the server are never touched by any of these
 
 `--env NAME` or `--server` (passed to ODBC as is: `host,port` or `host\instance`). Windows
 auth by default; `--sql-user NAME` uses SQL auth with the password from
-`ONPREM_SQL_PASSWORD` (never on the command line). `--trust-server-certificate` for lab
+`SSISBLISS_SQL_PASSWORD` (never on the command line). `--trust-server-certificate` for lab
 servers with self-signed certificates.
 
 SSISDB refuses `deploy_project`, `deploy_packages` and `restore_project` for SQL logins

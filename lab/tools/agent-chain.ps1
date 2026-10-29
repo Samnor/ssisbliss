@@ -1,9 +1,9 @@
-# onprem-agent against the real SQL Agent: a chain broken by a read-only target, and a chain that stops
+# ssisbliss against the real SQL Agent: a chain broken by a read-only target, and a chain that stops
 # because a job quits before its Start next step. Restores both. Prints one JSON line.
 $ErrorActionPreference = 'Stop'
 $sqlcmd = Get-ChildItem "C:\Program Files\Microsoft SQL Server\Client SDK\ODBC" -Recurse -Filter SQLCMD.EXE | Select-Object -First 1 -ExpandProperty FullName
 function Sql($q) { $o = & $sqlcmd -S localhost,14331 -E -b -h -1 -W -Q $q; if ($LASTEXITCODE) { throw "sql failed: $o" }; $o }
-$agent = 'C:\lab\tools\venv\Scripts\onprem-agent.exe'; $ssis = 'C:\lab\tools\venv\Scripts\onprem-ssis.exe'
+$agent = 'C:\lab\tools\venv\Scripts\ssisbliss.exe'; $ssis = 'C:\lab\tools\venv\Scripts\ssisbliss.exe'
 $a = @('--server', 'localhost,14331', '--trust-server-certificate')
 $out = @{}
 Sql "EXEC SSISDB.catalog.set_environment_variable_value @folder_name=N'SILVER', @environment_name=N'Default', @variable_name=N'TargetDb', @value=N'GOLD_ARCHIVE'; EXEC msdb.dbo.sp_start_job @job_name=N'1 BRONZE_API';" | Out-Null

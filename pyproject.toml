@@ -28,8 +28,7 @@ Documentation = "https://github.com/Samnor/ssisbliss/tree/main/docs"
 Issues = "https://github.com/Samnor/ssisbliss/issues"
 
 [project.scripts]
-onprem-ssis = "ssisbliss.ssis.cli:main"
-onprem-agent = "ssisbliss.agent.cli:main"
+ssisbliss = "ssisbliss.ssis.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

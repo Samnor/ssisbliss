@@ -1,6 +1,6 @@
 # Visual Studio 2022 Community with the SSIS Projects extension, the standalone SSIS DevOps tools
 # (SSISBuild.exe, SSISDeploy.exe) and an RDP login, so Microsoft's own deploy paths can be compared
-# with onprem-ssis. Idempotent; each part is skipped when already present.
+# with ssisbliss. Idempotent; each part is skipped when already present.
 # VS Community licence: fine for this open-source lab; check the terms before other use.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'

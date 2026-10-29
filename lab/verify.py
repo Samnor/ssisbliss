@@ -70,7 +70,7 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
     def agent():
         raw = ps("agent-chain.ps1")
         d = first_json(raw)
-        ok = (d.get("broken_verdict") == "failed at 3 SILVER" and str(d.get("history_next", "")).startswith("onprem-ssis executions --id")
+        ok = (d.get("broken_verdict") == "failed at 3 SILVER" and str(d.get("history_next", "")).startswith("ssisbliss executions --id")
               and d.get("failed_task_kind") == "sql" and d.get("failed_task_target_db") == "GOLD_ARCHIVE"
               and str(d.get("skipped_verdict", "")).startswith("stopped after 2 BRONZE") and "quit reporting success" in str(d.get("skipped_why")))
         return ok, f"broken: {d.get('broken_verdict')}; skipped: {d.get('skipped_verdict')}", raw
@@ -90,12 +90,12 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}
-        ours = [r[m] for m in ("onprem-project", "onprem-packages")]
+        ours = [r[m] for m in ("ssisbliss-project", "ssisbliss-packages")]
         theirs = [r[m] for m in ("wizard", "ssisdeploy")]
         ok = (all(x["developer_change_deployed"] and x["colleague_work_kept"] and x["bindings_kept"]
                   and x["environment_references_kept"] for x in ours)
               and all(x["developer_change_deployed"] and not x["colleague_work_kept"] for x in theirs))
-        return ok, "onprem-ssis keeps a colleague's package; ISDeploymentWizard/SSISDeploy project deploys still overwrite it", raw
+        return ok, "ssisbliss keeps a colleague's package; ISDeploymentWizard/SSISDeploy project deploys still overwrite it", raw
     check("project-deploy-comparison", microsoft_deploys)
 
     def corpus():
@@ -110,7 +110,7 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                  and x.get("packages_identical")
                  and x.get("ours_equals_ssisbuild", {}).get("parameters")
                  and (x["variant"] == "drift" or x.get("ours_equals_ssisbuild", {}).get("packages")) for x in res)
-        return ok, "onprem-ssis build deploys like Visual Studio's build (packages) and SSISBuild's (parameters)", raw
+        return ok, "ssisbliss build deploys like Visual Studio's build (packages) and SSISBuild's (parameters)", raw
     check("build-comparison", builds)
 
     def package_deploys():
@@ -119,7 +119,7 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
         deployed = [x for x in d["results"] if x["method"] != "wizard package mode, bin .ispac"]
         ok = (all(x["changed_on_server"] == ["Load_B.dtsx"] for x in deployed)
               and all(d["stored_result_same_as_first_method"].values()) and len(d["stored_result_same_as_first_method"]) == 4)
-        return ok, "after a Visual Studio Rebuild, wizard package mode and onprem-ssis leave the same project", raw
+        return ok, "after a Visual Studio Rebuild, wizard package mode and ssisbliss leave the same project", raw
     check("package-deploy-comparison", package_deploys)
 
     def visual_studio_ui():

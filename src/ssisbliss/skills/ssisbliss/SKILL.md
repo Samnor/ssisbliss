@@ -1,11 +1,11 @@
 ---
 name: ssisbliss
-description: Deploy SSIS packages safely to on-premises SQL Server catalogs (SSISDB) with onprem-ssis, and find out why SQL Agent job chains or SSIS packages failed with onprem-agent and onprem-ssis executions. Use for any request to deploy, build, roll back or remove SSIS packages or projects, put dev back to main, or explain a failed nightly load, a broken job chain or a failed package.
+description: Deploy SSIS packages safely to SQL Server catalogs (SSISDB) with ssisbliss, and find out why SQL Agent job chains or SSIS packages failed with ssisbliss chain, history and executions. Use for any request to deploy, build, roll back or remove SSIS packages or projects, put dev back to main, or explain a failed nightly load, a broken job chain or a failed package.
 ---
 
-# onprem-ssis and onprem-agent
+# ssisbliss
 
-Both print one JSON document. Environments (dev, stage, prod) come from `onprem-ssis.toml`:
+Every command prints one JSON document. Environments (dev, stage, prod) come from `ssisbliss.toml`:
 pass `--env NAME` plus `--folder` and `--project` (catalog folder and project). Nothing changes
 on a server without `--apply` and the `plan_id` of a plan you just made.
 
@@ -27,18 +27,18 @@ on a server without `--apply` and the `plan_id` of a plan you just made.
 
 | The developer wants | Command (then the same with `--apply --plan-id ...`) |
 |---|---|
-| "deploy my changes" (no packages named) | `onprem-ssis status --env dev --folder F --project P --dir path/to/dtsx`, then plan its `deploy_your_changes` command. `git status` misses changes already committed on the branch; deploy every package in `your_changes` |
-| deploy one or more changed `.dtsx` (Visual Studio's Deploy Package) | `onprem-ssis deploy-packages --env dev --folder F --project P path/Pkg.dtsx` |
+| "deploy my changes" (no packages named) | `ssisbliss status --env dev --folder F --project P --dir path/to/dtsx`, then plan its `deploy_your_changes` command. `git status` misses changes already committed on the branch; deploy every package in `your_changes` |
+| deploy one or more changed `.dtsx` (Visual Studio's Deploy Package) | `ssisbliss deploy-packages --env dev --folder F --project P path/Pkg.dtsx` |
 | a new package | add `--allow-new` |
-| deploy from the Visual Studio project, built first | `onprem-ssis deploy-project --env dev --folder F --project P --dtproj path/X.dtproj --only Pkg` |
-| deploy from a built `.ispac` (`bin/Development/X.ispac`) | `onprem-ssis deploy-project ... --ispac path/X.ispac --only Pkg` |
+| deploy from the Visual Studio project, built first | `ssisbliss deploy-project --env dev --folder F --project P --dtproj path/X.dtproj --only Pkg` |
+| deploy from a built `.ispac` (`bin/Development/X.ispac`) | `ssisbliss deploy-project ... --ispac path/X.ispac --only Pkg` |
 | also a new or changed project parameter / connection manager | add `--item Name` (each one by name; the rest stay as deployed) |
 | the whole project, like Visual Studio's Deploy | `deploy-project ... --dtproj X.dtproj --all` (still checks every package) |
-| put dev back to main after a PR | `onprem-ssis deploy-packages ... path/Pkg.dtsx --from-ref main` |
-| remove a package their branch added | `onprem-ssis remove-packages --env dev --folder F --project P Pkg` |
+| put dev back to main after a PR | `ssisbliss deploy-packages ... path/Pkg.dtsx --from-ref main` |
+| remove a package their branch added | `ssisbliss remove-packages --env dev --folder F --project P Pkg` |
 | undo a bad deploy of one package | put back its earlier version from git: `deploy-packages ... path/Pkg.dtsx --from-ref main` (or the commit before yours) |
-| undo a whole bad deploy | `onprem-ssis versions ...`, then `onprem-ssis rollback ... --to-lsn N`; refused if others deployed since (it would undo their work): then use the git way above |
-| what is on dev compared to me | `onprem-ssis status --env dev --folder F --project P --dir path/to/dtsx` |
+| undo a whole bad deploy | `ssisbliss versions ...`, then `ssisbliss rollback ... --to-lsn N`; refused if others deployed since (it would undo their work): then use the git way above |
+| what is on dev compared to me | `ssisbliss status --env dev --folder F --project P --dir path/to/dtsx` |
 | prod | the same commands with `--env prod`; prod takes only committed and pushed packages and needs `--confirm-env prod` |
 
 Package names: `Pkg` or `Pkg.dtsx` both work. A file named in a different case than the deployed
@@ -46,17 +46,17 @@ package is deployed as that package (with a warning).
 
 ## Why did it fail?
 
-1. `onprem-agent chain --env prod` - where the job chain is: `completed`, `running: X`,
+1. `ssisbliss chain --env prod` - where the job chain is: `completed`, `running: X`,
    `failed at X`, or `stopped after X` (with `why` when a step quits early). Running is not failing.
-2. `onprem-agent history --env prod "JOB NAME" --runs 1` - the failed step and its
-   `next` command (`onprem-ssis executions --id N`). A failure on an earlier night: `--runs 5`,
+2. `ssisbliss history --env prod "JOB NAME" --runs 1` - the failed step and its
+   `next` command (`ssisbliss executions --id N`). A failure on an earlier night: `--runs 5`,
    find the run on that date. A step with a `hint` and no execution never started (e.g. the
-   package was renamed): run its `next` (`onprem-ssis inspect ...`) and compare the names.
-3. `onprem-ssis executions --env prod --id N` - the failing task (its `package` may be a child
+   package was renamed): run its `next` (`ssisbliss inspect ...`) and compare the names.
+3. `ssisbliss executions --env prod --id N` - the failing task (its `package` may be a child
    package the job's package runs: report the child), its error, its SQL or the
    PowerShell/Python command, `connection_parameters` (with `override_note` when a job step
    overrides a parameter), and a `hint`. No messages at all usually means logging level None.
-4. `onprem-ssis outline --env prod --folder F --project P --package Pkg` - what the package does.
+4. `ssisbliss outline --env prod --folder F --project P --package Pkg` - what the package does.
 
 Report the cause in the developer's terms: which job, which task, what failed, and what to change
 (a job step's `/Par` override, a read-only database, a script to run by hand on the server).

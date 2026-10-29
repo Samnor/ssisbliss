@@ -158,7 +158,7 @@ def job_views(jobs: list[dict], steps: list[dict]) -> list[dict]:
                 v["last_completed_step"] = j["last_executed_step_id"]
         v["last_run"] = _last_run(j)
         if v["last_run"] and v["last_run"]["outcome"] in ("failed", "canceled"):
-            v["next"] = f'onprem-agent history "{j["name"]}" --runs 1'
+            v["next"] = f'ssisbliss history "{j["name"]}" --runs 1'
         v["schedules"] = j["enabled_schedules"]
         if j.get("next_run"):
             v["next_run"] = j["next_run"]
@@ -274,14 +274,14 @@ def runs(rows: list[dict]) -> list[dict]:
         if m:
             step["ssis_execution_id"] = int(m.group(1))
             if outcome != "succeeded":
-                step["next"] = f"onprem-ssis executions --id {m.group(1)}"
+                step["next"] = f"ssisbliss executions --id {m.group(1)}"
         nf = _NOT_FOUND.search(msg) if outcome != "succeeded" else None
         if nf:
             folder, project, package = nf.groups()
             step["hint"] = (f"the package never started: the catalog has no {package} in {folder}/{project} (renamed "
                             f"or removed by a deploy?), or the step's login cannot see it; no SSIS execution exists. "
                             f"Compare with the deployed packages")
-            step["next"] = f'onprem-ssis inspect --folder "{folder}" --project "{project}"'
+            step["next"] = f'ssisbliss inspect --folder "{folder}" --project "{project}"'
         current["steps"].append(step)
     for run in out:
         run.pop("run_id")

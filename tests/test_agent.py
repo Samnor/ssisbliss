@@ -135,7 +135,7 @@ def test_history_runs_link_failed_ssis_steps_to_their_execution():
     assert [x["outcome"] for x in r] == ["failed", "succeeded"]
     assert r[1]["duration_s"] == 62   # run_duration is HHMMSS
     failed = r[0]["steps"][0]
-    assert failed["ssis_execution_id"] == 69 and failed["next"] == "onprem-ssis executions --id 69"
+    assert failed["ssis_execution_id"] == 69 and failed["next"] == "ssisbliss executions --id 69"
     assert "Execute Package Utility" not in failed["message"]
     assert "next" not in r[1]["steps"][0]
 
@@ -151,7 +151,7 @@ def test_cli_with_fake_msdb(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["chains"][0]["verdict"] == "failed at 2 B"
     assert cli.main(["jobs", *srv, "--failed", "--brief"]) == 0
     [failed] = json.loads(capsys.readouterr().out)["jobs"]
-    assert failed["name"] == "2 B" and failed["next"] == 'onprem-agent history "2 B" --runs 1'
+    assert failed["name"] == "2 B" and failed["next"] == 'ssisbliss history "2 B" --runs 1'
     assert cli.main(["history", *srv, "2 B", "--runs", "1"]) == 0
     assert len(json.loads(capsys.readouterr().out)["runs"]) == 1
     assert cli.main(["history", *srv, "B"]) == 2
@@ -168,4 +168,4 @@ def test_history_names_a_package_the_catalog_cannot_find():
              "start_time": "2026-10-29T02:05:01", "message": "The job failed."}]
     step = runs(rows)[0]["steps"][0]
     assert "Load_Prices.dtsx" in step["hint"] and "renamed" in step["hint"]
-    assert step["next"] == 'onprem-ssis inspect --folder "BRONZE_API" --project "IMPORTAPI"'
+    assert step["next"] == 'ssisbliss inspect --folder "BRONZE_API" --project "IMPORTAPI"'

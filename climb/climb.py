@@ -30,8 +30,8 @@ ALLOWED = ("src/ssisbliss/ssis/", "src/ssisbliss/agent/", "docs/", "tests/test_s
 FORBIDDEN = ("src/ssisbliss/ssis/fake.py", "src/ssisbliss/agent/fake.py")
 
 PROPOSE = """You are improving the ssisbliss CLIs used by developers and by LLM agents in the field:
-`onprem-ssis` (safe SSIS catalog deployments; `executions` and `outline` explain failed packages) and
-`onprem-agent` (SQL Agent jobs, job chains, run history). A suite of field scenarios was just run: an agent got a
+`ssisbliss` (safe SSIS catalog deployments; `executions` and `outline` explain failed packages) and
+`ssisbliss` (SQL Agent jobs, job chains, run history). A suite of field scenarios was just run: an agent got a
 developer's request and used the CLIs against fake dev/stage/prod servers. Results:
 
 {scorecard}

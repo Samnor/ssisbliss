@@ -74,7 +74,9 @@ class Plan:
         return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()[:16]
 
     def to_dict(self) -> dict:
+        refused = {"refused_because": [f"{c['check']}: {c['detail']}" for c in self.errors]} if self.errors else {}
         return {
+            **refused,          # first, so a reader (or an agent) sees why before the details
             "action": self.action,
             "method": self.method,
             "target": {
@@ -216,7 +218,7 @@ def _check_overwrite(plan: Plan, name: str, server_sha: str, base_sha: str | Non
     elif base_sha is None:
         plan.check(f"overwrite:{name}", "error",
                    f"no record of which deployed version this file started from, and it differs from the server; "
-                   f"{last}. Run `onprem-ssis pull` to fetch the deployed copy and merge, "
+                   f"{last}. Run `ssisbliss pull` to fetch the deployed copy and merge, "
                    f"or pass --overwrite {name} if replacing it is intended")
     else:
         plan.check(f"overwrite:{name}", "error",
@@ -546,7 +548,7 @@ def apply(catalog: Catalog, plan: Plan, plan_id: str, backup_dir: Path) -> tuple
     before_refs = _env_refs(catalog, pid)
 
     backup = _write_backup(backup_dir, plan, before_bindings, before_refs)
-    rollback_cmd = (f'onprem-ssis rollback --server "<server>" --folder "{plan.folder}" '
+    rollback_cmd = (f'ssisbliss rollback --server "<server>" --folder "{plan.folder}" '
                     f'--project "{plan.project}" --to-lsn {before_lsn}')
 
     try:

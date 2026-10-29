@@ -1,4 +1,4 @@
-"""Visual Studio's "Rebuild, then Deploy Package" vs onprem-ssis, on the lab's SSISDB.
+"""Visual Studio's "Rebuild, then Deploy Package" vs ssisbliss, on the lab's SSISDB.
 
 1. The corpus project (lab/tools/build-corpus.ps1, variant `configs`) is deployed as built by
    Visual Studio: the baseline in /SSISDB/PKGCMP/Corpus.
@@ -34,10 +34,10 @@ WORK = Path(r"C:\lab\work\pkgdeploy")
 VS = Path(r"C:\Program Files\Microsoft Visual Studio\2022\Community")
 WIZARD = VS / r"Common7\IDE\CommonExtensions\Microsoft\SSIS\170\Binn\ISDeploymentWizard.exe"
 DEVENV = VS / r"Common7\IDE\devenv.com"
-ONPREM = Path(r"C:\lab\tools\venv\Scripts\onprem-ssis.exe")
-XE, APP = "onprem_pkgdeploy", "onprem-compare"
+TOOL = Path(r"C:\lab\tools\venv\Scripts\ssisbliss.exe")
+XE, APP = "ssisbliss_pkgdeploy", "ssisbliss-compare"
 STATE = WORK / "state"   # this script's own base records (the tools keep them per user)
-os.environ["ONPREM_STATE_DIR"] = str(STATE)
+os.environ["SSISBLISS_STATE_DIR"] = str(STATE)
 HEX = re.compile(r"0x([0-9A-Fa-f]{200,})")
 
 
@@ -107,7 +107,7 @@ def main() -> int:
     srv.cat.deploy_project(FOLDER, PROJECT, baseline)
     base_lsn = srv.cat.project(FOLDER, PROJECT).object_version_lsn
     base_hashes = Ispac(srv.cat.get_project(FOLDER, PROJECT)).package_hashes()
-    run([ONPREM, "pull", "--server", SERVER, "--trust-server-certificate", "--folder", FOLDER, "--project", PROJECT,
+    run([TOOL, "pull", "--server", SERVER, "--trust-server-certificate", "--folder", FOLDER, "--project", PROJECT,
          "--out", proj])   # records your version per folder (not a git repository here)
     shutil.copytree(STATE, WORK / "state-baseline")
 
@@ -129,9 +129,9 @@ def main() -> int:
         "wizard package mode, source folder": [WIZARD, "/ModelType:Package", f"/SourcePath:{proj}", "/Packages:Load_B.dtsx", *target],
         "wizard package mode, obj folder": [WIZARD, "/ModelType:Package", f"/SourcePath:{obj}", "/Packages:Load_B.dtsx", *target],
         "wizard package mode, bin .ispac": [WIZARD, "/ModelType:Package", f"/SourcePath:{bin_ispac}", "/Packages:Load_B.dtsx", *target],
-        "onprem-ssis deploy-packages (source .dtsx)": [ONPREM, "deploy-packages", "--server", SERVER, "--trust-server-certificate",
+        "ssisbliss deploy-packages (source .dtsx)": [TOOL, "deploy-packages", "--server", SERVER, "--trust-server-certificate",
                                                        "--folder", FOLDER, "--project", PROJECT, proj / "Load_B.dtsx"],
-        "onprem-ssis deploy-project --dtproj --only": [ONPREM, "deploy-project", "--server", SERVER, "--trust-server-certificate",
+        "ssisbliss deploy-project --dtproj --only": [TOOL, "deploy-project", "--server", SERVER, "--trust-server-certificate",
                                                        "--folder", FOLDER, "--project", PROJECT, "--dtproj", proj / "Corpus.dtproj",
                                                        "--only", "Load_B"],
     }
@@ -142,7 +142,7 @@ def main() -> int:
         shutil.rmtree(STATE, ignore_errors=True)
         shutil.copytree(WORK / "state-baseline", STATE)
         srv.capture_start()
-        if str(cmd[0]) == str(ONPREM):
+        if str(cmd[0]) == str(TOOL):
             code, out = run(cmd)
             try:
                 plan = json.loads(out)

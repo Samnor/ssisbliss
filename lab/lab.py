@@ -19,7 +19,7 @@ Commands:
     save-image --stage S        save the running host as an image
     install-ide                 Visual Studio 2022 + SSIS Projects, SSIS DevOps tools, RDP login labadmin
     verify                      every real-server check (deploys, builds, Agent, the Visual Studio UI), PASS/FAIL
-    install-tools               build this repo's wheel and install onprem-ssis on the host
+    install-tools               build this repo's wheel and install ssisbliss on the host
                                 (then: run tools/smoke-ssis.ps1 for an end-to-end SSISDB test)
     run SCRIPT.ps1|.py [...]    run PowerShell (or Python, with the install-tools venv) on the host via SSM
     ps "COMMAND"                run an inline PowerShell command on the host
@@ -372,12 +372,12 @@ finally {{ 'done' | Set-Content "$Out\\done.txt" }}
 '@ | Set-Content -Encoding utf8 "$base\\ui.ps1"
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -STA -File $base\\ui.ps1"
 $principal = New-ScheduledTaskPrincipal -UserId "$env:COMPUTERNAME\\labadmin" -LogonType Interactive -RunLevel Highest
-Register-ScheduledTask -TaskName onprem-vsui -Action $action -Principal $principal -Force | Out-Null
-Start-ScheduledTask -TaskName onprem-vsui
+Register-ScheduledTask -TaskName ssisbliss-vsui -Action $action -Principal $principal -Force | Out-Null
+Start-ScheduledTask -TaskName ssisbliss-vsui
 $deadline = (Get-Date).AddSeconds({timeout})
 while ((Get-Date) -lt $deadline -and -not (Test-Path "$out\\done.txt")) {{ Start-Sleep 5 }}
-if (-not (Test-Path "$out\\done.txt")) {{ 'TIMEOUT' | Add-Content "$out\\log.txt"; Stop-ScheduledTask -TaskName onprem-vsui }}
-Unregister-ScheduledTask -TaskName onprem-vsui -Confirm:$false
+if (-not (Test-Path "$out\\done.txt")) {{ 'TIMEOUT' | Add-Content "$out\\log.txt"; Stop-ScheduledTask -TaskName ssisbliss-vsui }}
+Unregister-ScheduledTask -TaskName ssisbliss-vsui -Confirm:$false
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Remove-Item "$base\\out.zip" -ErrorAction SilentlyContinue
 [IO.Compression.ZipFile]::CreateFromDirectory($out, "$base\\out.zip")

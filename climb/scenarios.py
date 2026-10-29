@@ -484,7 +484,7 @@ def _hard() -> list[Scenario]:
                  suite="hard"),
         Scenario("hard-chain-earlier-night", "The nightly load on prod failed the night before last (early on 28 "
                  "October); last night it ran fine. Find out what went wrong that night and what needs fixing. "
-                 "Environments are in ./onprem-ssis.toml.", tw("earlier"),
+                 "Environments are in ./ssisbliss.toml.", tw("earlier"),
                  lambda w, t: diagnosed(w, t, [("fetch_prices",), ("exit code", "exit 2", "returned 2", "code 2"),
                                                  ("28", "night before last", "two nights ago")]), {},
                  "the failure is in an older run; the latest runs all succeeded", suite="hard"),

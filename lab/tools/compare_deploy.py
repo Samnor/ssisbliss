@@ -1,4 +1,4 @@
-"""Compare Microsoft's deploy paths with onprem-ssis on the lab's SSISDB.
+"""Compare Microsoft's deploy paths with ssisbliss on the lab's SSISDB.
 
 Scenario, in catalog folder CMP (a copy of SILVER/SILVER):
   - baseline project with an environment reference and parameter bindings
@@ -9,7 +9,7 @@ land, did the colleague's work survive, did bindings / environment references su
 which SSISDB procedures it called (Extended Events capture).
 
 Run on the lab host (lab.py run lab/tools/compare_deploy.py [--args ...]):
-  --methods wizard,ssisdeploy,onprem-project,onprem-packages   (default: all)
+  --methods wizard,ssisdeploy,ssisbliss-project,ssisbliss-packages   (default: all)
   --observe MINUTES   reset the scenario, then capture whatever you deploy into CMP/SILVER from
                       Visual Studio over RDP for that long, and score it the same way
 """
@@ -37,11 +37,11 @@ SOURCE = ("SILVER", "SILVER")
 FOLDER, PROJECT = "CMP", "SILVER"
 WORK = Path(r"C:\lab\work\compare")
 TOOLS = Path(r"C:\lab\tools")
-ONPREM = TOOLS / "venv" / "Scripts" / "onprem-ssis.exe"
-XE = "onprem_compare"
-APP = "onprem-compare"
+TOOL = TOOLS / "venv" / "Scripts" / "ssisbliss.exe"
+XE = "ssisbliss_compare"
+APP = "ssisbliss-compare"
 STATE = WORK / "state"                      # this script's own base records (the tools keep them per user)
-os.environ["ONPREM_STATE_DIR"] = str(STATE)   # this script's own connection, excluded from the capture
+os.environ["SSISBLISS_STATE_DIR"] = str(STATE)   # this script's own connection, excluded from the capture
 CALL = re.compile(r"\[?\b(catalog|internal)\]?\.\[?(\w+)\]?", re.I)   # catalog.x and [catalog].[x]
 
 
@@ -99,7 +99,7 @@ class Lab:
         if dev.exists():
             for f in dev.iterdir():
                 f.unlink()
-        run([str(ONPREM), "pull", *target(), "--out", str(dev), "--packages", "Stage_Product.dtsx"])
+        run([str(TOOL), "pull", *target(), "--out", str(dev), "--packages", "Stage_Product.dtsx"])
         colleague = edit(as_editable(source.package("Stage_Ledger.dtsx")), "colleague work in progress")
         self.cat.deploy_packages(FOLDER, PROJECT, [("Stage_Ledger.dtsx", colleague)])
 
@@ -233,30 +233,30 @@ def method_commands(base: dict, tools: dict) -> dict[str, list[list[str]] | str]
         "ssisdeploy": [[str(Path(tools.get("ssisdevops", r"C:\lab\tools\ssisdevops")) / "SSISDeploy.exe"),
                         f"-s:{built}", f"-d:catalog;/SSISDB/{FOLDER}/{PROJECT};{SERVER}", "-at:win",
                         "-css:TrustServerCertificate=True"]],
-        "onprem-project": "deploy-project",
-        "onprem-packages": "deploy-packages",
+        "ssisbliss-project": "deploy-project",
+        "ssisbliss-packages": "deploy-packages",
     }
 
 
-def run_onprem(kind: str, base: dict) -> tuple[int, str]:
+def run_ssisbliss(kind: str, base: dict) -> tuple[int, str]:
     if kind == "deploy-project":
         args = ["deploy-project", *target(), "--ispac", base["built"], "--only", "Stage_Product",
                 "--base-dir", str(WORK / "dev")]
     else:
         args = ["deploy-packages", *target(), str(WORK / "dev" / "Stage_Product.dtsx")]
-    code, out = run([str(ONPREM), *args])
+    code, out = run([str(TOOL), *args])
     try:
         plan = json.loads(out)
     except json.JSONDecodeError:
         return code, out
     if not plan.get("plan_id"):
         return code, out
-    return run([str(ONPREM), *args, "--apply", "--plan-id", plan["plan_id"], "--backup-dir", str(WORK / "bk")])
+    return run([str(TOOL), *args, "--apply", "--plan-id", plan["plan_id"], "--backup-dir", str(WORK / "bk")])
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--methods", default="wizard,ssisdeploy,onprem-project,onprem-packages")
+    ap.add_argument("--methods", default="wizard,ssisdeploy,ssisbliss-project,ssisbliss-packages")
     ap.add_argument("--observe", type=float, help="minutes to capture a deploy you do from Visual Studio")
     a = ap.parse_args()
     lab, tools = Lab(), tool_paths()
@@ -275,7 +275,7 @@ def main() -> int:
             lab.capture_start()
             spec = commands[name]
             if isinstance(spec, str):
-                code, out = run_onprem(spec, base)
+                code, out = run_ssisbliss(spec, base)
             elif not spec[0][0] or not Path(spec[0][0]).exists():
                 code, out = None, f"tool not installed: {spec[0][0] or name}"
             else:

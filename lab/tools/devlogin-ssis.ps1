@@ -1,4 +1,4 @@
-# Run onprem-ssis as a plain Windows user with only folder permissions on SILVER (no sysadmin, no ssis_admin):
+# Run ssisbliss as a plain Windows user with only folder permissions on SILVER (no sysadmin, no ssis_admin):
 # pull, plan and apply one package deploy, then put SILVER back where it was.
 # Usage: lab.py install-tools; lab.py run lab/tools/devlogin-ssis.ps1
 $ErrorActionPreference = 'Stop'
@@ -43,7 +43,7 @@ $startLsn = (Sql "SET NOCOUNT ON; SELECT p.object_version_lsn FROM SSISDB.catalo
 $job = @"
 `$ErrorActionPreference = 'Continue'
 Set-Location $work
-`$t = 'C:\lab\tools\venv\Scripts\onprem-ssis.exe'
+`$t = 'C:\lab\tools\venv\Scripts\ssisbliss.exe'
 `$a = @('--server', 'localhost,$port', '--trust-server-certificate', '--folder', 'SILVER', '--project', 'SILVER')
 "whoami: `$(whoami)" | Out-File out.txt
 "=== pull" | Out-File -Append out.txt
@@ -63,20 +63,20 @@ if (`$id) {
 "@
 Set-Content -Path "$work\job.ps1" -Value $job
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File $work\job.ps1"
-Register-ScheduledTask -TaskName onprem-labdev -Action $action -User $login -Password $pw -RunLevel Limited -Force | Out-Null
-Start-ScheduledTask -TaskName onprem-labdev
+Register-ScheduledTask -TaskName ssisbliss-labdev -Action $action -User $login -Password $pw -RunLevel Limited -Force | Out-Null
+Start-ScheduledTask -TaskName ssisbliss-labdev
 $deadline = (Get-Date).AddMinutes(5)
 function Done { (Test-Path "$work\out.txt") -and (Select-String -Path "$work\out.txt" -Pattern '=== done' -Quiet) }
 while ((Get-Date) -lt $deadline -and -not (Done)) { Start-Sleep 3 }
-$info = Get-ScheduledTaskInfo -TaskName onprem-labdev
+$info = Get-ScheduledTaskInfo -TaskName ssisbliss-labdev
 Write-Output "task last result: $($info.LastTaskResult)" 
-Unregister-ScheduledTask -TaskName onprem-labdev -Confirm:$false
+Unregister-ScheduledTask -TaskName ssisbliss-labdev -Confirm:$false
 Get-Content "$work\out.txt" -Raw -Encoding Unicode -ErrorAction SilentlyContinue
 $endLsn = (Sql "SET NOCOUNT ON; SELECT p.object_version_lsn FROM SSISDB.catalog.projects p JOIN SSISDB.catalog.folders f ON f.folder_id = p.folder_id WHERE f.name = N'SILVER' AND p.name = N'SILVER'").Trim()
 Write-Output "lsn before $startLsn, after $endLsn"
 if ($endLsn -ne $startLsn) {
     # While labdev's deploy is live, rolling back past it (as this script's login) must be refused.
-    $rb = & C:\lab\tools\venv\Scripts\onprem-ssis.exe rollback --server "localhost,$port" --trust-server-certificate --folder SILVER --project SILVER --to-lsn $startLsn | Out-String | ConvertFrom-Json
+    $rb = & C:\lab\tools\venv\Scripts\ssisbliss.exe rollback --server "localhost,$port" --trust-server-certificate --folder SILVER --project SILVER --to-lsn $startLsn | Out-String | ConvertFrom-Json
     $others = ($rb.checks | Where-Object { $_.check -eq 'others' }).detail
     Write-Output "others check: $others"
     Sql "EXEC SSISDB.catalog.restore_project @folder_name = N'SILVER', @project_name = N'SILVER', @object_version_lsn = $startLsn" | Out-Null

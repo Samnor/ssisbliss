@@ -1,7 +1,7 @@
-"""onprem-agent: SQL Server Agent jobs, numbered job chains and run history, for people and agents.
+"""ssisbliss: SQL Server Agent jobs, numbered job chains and run history, for people and agents.
 
 Read-only. Every command prints one JSON document on stdout. A failed SSIS step names its
-execution id; `onprem-ssis executions --id N` shows the failing task and what it runs.
+execution id; `ssisbliss executions --id N` shows the failing task and what it runs.
 """
 from __future__ import annotations
 
@@ -71,17 +71,15 @@ def cmd_history(a) -> int:
     return emit({"server": src.server_name(), "job": a.job, "runs": found})
 
 
-def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="onprem-agent", description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = p.add_subparsers(dest="cmd", required=True)
+def add_commands(sub) -> None:
+    """Register jobs, chain and history on a subparsers object (the ssisbliss command uses this)."""
 
     def target(s):
         g = s.add_argument_group("target")
-        g.add_argument("--env", help="environment name from onprem-ssis.toml")
+        g.add_argument("--env", help="environment name from ssisbliss.toml")
         g.add_argument("--server", help="ODBC server, e.g. host\\instance or host,port")
-        g.add_argument("--config", help="path to onprem-ssis.toml")
-        g.add_argument("--sql-user", help="SQL login; password from ONPREM_SQL_PASSWORD")
+        g.add_argument("--config", help="path to ssisbliss.toml")
+        g.add_argument("--sql-user", help="SQL login; password from SSISBLISS_SQL_PASSWORD")
         g.add_argument("--trust-server-certificate", action="store_true")
 
     s = sub.add_parser("jobs", help="jobs with state, last and next run, what each step runs, and links")
@@ -103,6 +101,12 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--runs", type=int, default=5)
     s.add_argument("--failed", action="store_true", help="only runs that did not succeed")
     s.set_defaults(fn=cmd_history)
+
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="ssisbliss", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_commands(p.add_subparsers(dest="cmd", required=True))
     return p
 
 

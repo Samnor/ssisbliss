@@ -1,6 +1,6 @@
 # Shared environments file
 
-**Idea.** Commit one `onprem-ssis.toml` at the root of the SSIS repository with the team's
+**Idea.** Commit one `ssisbliss.toml` at the root of the SSIS repository with the team's
 dev/stage/prod servers, expected `@@SERVERNAME`s and the prod rules (`require_git_pushed`,
 `confirm`), so nobody types a server string and everyone gets the same guard rails.
 
@@ -8,5 +8,5 @@ dev/stage/prod servers, expected `@@SERVERNAME`s and the prod rules (`require_gi
 agents get the right setup by cloning.
 
 **Why not in the tools.** It adds a file to the team's repository. The tools already find an
-`onprem-ssis.toml` in the working folder or its parents, and should also read a user-level
-file (`~/.config/ssisbliss/onprem-ssis.toml`), so they work without it.
+`ssisbliss.toml` in the working folder or its parents, and should also read a user-level
+file (`~/.config/ssisbliss/ssisbliss.toml`), so they work without it.

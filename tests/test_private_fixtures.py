@@ -1,7 +1,7 @@
 """The tools on real packages from the field, kept only on this machine.
 
 Put .dtsx, .ispac and .dtproj files (any folder depth) in private/fixtures/, or point
-$ONPREM_PRIVATE_DIR at a folder with a fixtures/ subfolder. Both stay off GitHub (see
+$SSISBLISS_PRIVATE_DIR at a folder with a fixtures/ subfolder. Both stay off GitHub (see
 docs/private-data.md). Without them every test here is skipped, as in CI. Test ids use
 numbers, not file names, so names do not end up in test reports either.
 """
@@ -16,7 +16,7 @@ from ssisbliss.ssis.fake import _restored_package, stored_like_ssisdb
 from ssisbliss.ssis.ispac import Ispac
 from ssisbliss.ssis.outline import flatten, outline
 
-ROOT = Path(os.environ.get("ONPREM_PRIVATE_DIR") or Path(__file__).resolve().parents[1] / "private") / "fixtures"
+ROOT = Path(os.environ.get("SSISBLISS_PRIVATE_DIR") or Path(__file__).resolve().parents[1] / "private") / "fixtures"
 
 
 def found(suffix: str) -> list[Path]:

@@ -1,3 +1,3 @@
-"""Field tools for on-premises SQL Server, SSIS and the older Microsoft data platform."""
+"""ssisbliss: safe SSIS catalog deploys and SQL Agent troubleshooting, for people and AI agents."""
 
 __version__ = "0.1.0"

@@ -137,7 +137,7 @@ def _override_note(names: list[tuple[str, str]], r: dict, package: str) -> str:
     pars = ", ".join(f'/Par "${scope}::{n}"' for scope, n in names)
     return (f"{', '.join(n for _, n in names)} came from the caller ({r['caller_name']}) for this run, not from the project or "
             f"environment value. A SQL Agent job step sets it in its step command ({pars};...); "
-            f"`onprem-agent jobs` shows each step's ssis.parameters (look for {package}). Fix that override in the "
+            f"`ssisbliss jobs` shows each step's ssis.parameters (look for {package}). Fix that override in the "
             f"job step, or the database it points to; redeploying the package will not change it.")
 
 

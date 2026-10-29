@@ -1,7 +1,7 @@
 """Named deployment environments (dev / stage / prod ...).
 
-`onprem-ssis.toml`, from --config, else the working directory or a parent, else the user's own
-file ($ONPREM_SSIS_CONFIG, default ~/.config/ssisbliss/onprem-ssis.toml), so nothing has to
+`ssisbliss.toml`, from --config, else the working directory or a parent, else the user's own
+file ($SSISBLISS_CONFIG, default ~/.config/ssisbliss/ssisbliss.toml), so nothing has to
 live in the SSIS repository:
 
     [environments.dev]
@@ -23,7 +23,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-FILE = "onprem-ssis.toml"
+FILE = "ssisbliss.toml"
 
 
 @dataclass
@@ -39,7 +39,7 @@ class Environment:
 
 
 def user_config() -> Path:
-    return Path(os.environ.get("ONPREM_SSIS_CONFIG", "~/.config/ssisbliss/onprem-ssis.toml")).expanduser()
+    return Path(os.environ.get("SSISBLISS_CONFIG", "~/.config/ssisbliss/ssisbliss.toml")).expanduser()
 
 
 def find_config(start: Path | None = None) -> Path | None:

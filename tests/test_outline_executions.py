@@ -83,7 +83,7 @@ def test_failed_sql_task_shows_statement_and_the_parameters_its_connection_used(
     # says where the override lives, so the fix goes to the job step and not the package
     note = t["override_note"]
     assert note.startswith("TargetDb came from the caller (NT SERVICE\\SQLAgent)")
-    assert '/Par "$Project::TargetDb"' in note and "job step" in note and "onprem-agent jobs" in note
+    assert '/Par "$Project::TargetDb"' in note and "job step" in note and "ssisbliss jobs" in note
     assert "TargetServer" not in note
 
 

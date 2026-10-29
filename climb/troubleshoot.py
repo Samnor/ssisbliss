@@ -22,7 +22,7 @@ CHAIN = [("1 IMPORT_API", "BRONZE_API", "IMPORTAPI", "Fetch_Prices.dtsx"),
          ("3 STAGE", "STAGE", "STAGE", "Main.dtsx"),
          ("4 GOLD", None, None, None)]
 PROMPT = ("The nightly load on prod didn't finish. Find out what happened and tell me what needs fixing. "
-          "Environments are in ./onprem-ssis.toml.")
+          "Environments are in ./ssisbliss.toml.")
 
 
 def _job(name, start=None, status=1, duration=300, running=False, since=None, message=None, enabled=True):

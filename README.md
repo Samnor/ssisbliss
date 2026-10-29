@@ -3,21 +3,20 @@
 **SSIS deploys that never overwrite your colleagues' work, and nightly loads explained when they
 break. For people and AI agents.**
 
-Field tools for on-premises SQL Server, SSIS and the older Microsoft data platform:
-scripts and Python libraries for consultants and DBAs who work on real estates with
-SQL Agent job chains, SSIS catalogs, CDC, MDS and SSAS.
+Tools for SQL Server SSIS catalogs and SQL Agent job chains, for the developers and DBAs who
+deploy SSIS packages and keep the nightly loads running.
 
-Tools are built to be safe to drive from code, including by LLM agents: read-only by
+The tools are built to be safe to drive from code, including by LLM agents: read-only by
 default, explicit plans, JSON output, and checks that refuse the dangerous cases.
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
-| [`onprem-ssis`](docs/ssis-deploy.md) | Safe SSIS catalog deployment: deploy single packages, or a subset of a project, without overwriting anything else in the project or other people's work |
-| [`onprem-ssis build`](docs/build.md) | Build a Visual Studio SSIS project (.dtproj) into an .ispac without Visual Studio, matching Visual Studio's build on the server; deploy straight from a .dtproj |
-| [`onprem-ssis executions` / `outline`](docs/troubleshooting.md) | Why a package failed: the failing task, its error, its SQL or PowerShell/Python command, and the parameter values it ran with; what a package does, task by task |
-| [`onprem-agent`](docs/troubleshooting.md) | SQL Agent jobs and job chains: where the nightly chain is or where it broke, run history linked to SSIS executions |
+| [`ssisbliss`](docs/ssis-deploy.md) | Safe SSIS catalog deployment: deploy single packages, or a subset of a project, without overwriting anything else in the project or other people's work |
+| [`ssisbliss build`](docs/build.md) | Build a Visual Studio SSIS project (.dtproj) into an .ispac without Visual Studio, matching Visual Studio's build on the server; deploy straight from a .dtproj |
+| [`ssisbliss executions` / `outline`](docs/troubleshooting.md) | Why a package failed: the failing task, its error, its SQL or PowerShell/Python command, and the parameter values it ran with; what a package does, task by task |
+| [`ssisbliss jobs` / `chain` / `history`](docs/troubleshooting.md) | SQL Agent jobs and job chains: where the nightly chain is or where it broke, run history linked to SSIS executions |
 
 How well AI agents (Claude Sonnet and Haiku, Codex with GPT Luna) use the tools, with and without the
 included skill: [docs/agent-evaluation.md](docs/agent-evaluation.md).
@@ -27,7 +26,7 @@ included skill: [docs/agent-evaluation.md](docs/agent-evaluation.md).
 [`lab/`](lab/PLAN.md) creates an on-demand Windows + SQL Server environment on AWS that
 matches field versions, with mock databases, SSIS catalog and Agent jobs to build and
 test tools against. [docs/deploy-comparison.md](docs/deploy-comparison.md) compares Visual Studio's
-and Microsoft's command-line deploy paths with `onprem-ssis` on that lab.
+and Microsoft's command-line deploy paths with `ssisbliss` on that lab.
 
 `python lab/lab.py verify` runs every real-server check in one go (deploys, permissions,
 builds, Agent chains, and Visual Studio's own Rebuild + Deploy Package driven through its UI)
@@ -39,9 +38,8 @@ Into any environment, with nothing added to your SSIS repository:
 
 ```bash
 uv tool install ssisbliss          # or: pipx install ssisbliss / pip install ssisbliss
-onprem-ssis --help
-onprem-agent --help
-onprem-ssis install-skill            # optional: the ssisbliss skill for Claude Code and Codex (user level)
+ssisbliss --help
+ssisbliss install-skill            # optional: the ssisbliss skill for Claude Code and Codex (user level)
 ```
 
 The latest from GitHub: `uv tool install git+https://github.com/Samnor/ssisbliss`.

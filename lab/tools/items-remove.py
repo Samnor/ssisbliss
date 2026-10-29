@@ -7,9 +7,9 @@ from ssisbliss.ssis.ispac import Ispac
 from ssisbliss.ssis.dtsx import as_editable
 
 SERVER, F, P = "localhost,14331", "ITEMS", "SILVER"
-TOOL = r"C:\lab\tools\venv\Scripts\onprem-ssis.exe"
+TOOL = r"C:\lab\tools\venv\Scripts\ssisbliss.exe"
 WORK = Path(r"C:\lab\work\items")
-c = SqlCatalog(connection_string(SERVER, trust_server_certificate=True, app="onprem-compare"))
+c = SqlCatalog(connection_string(SERVER, trust_server_certificate=True, app="ssisbliss-compare"))
 c.conn.cursor().execute(f"IF NOT EXISTS (SELECT 1 FROM catalog.folders WHERE name = N'{F}') EXEC catalog.create_folder @folder_name = N'{F}'")
 if c.project(F, P):
     c.conn.cursor().execute("EXEC catalog.delete_project @folder_name = ?, @project_name = ?", F, P)

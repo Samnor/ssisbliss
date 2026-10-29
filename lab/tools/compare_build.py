@@ -1,4 +1,4 @@
-"""Deploy Visual Studio's build and onprem-ssis build of the same projects side by side and compare
+"""Deploy Visual Studio's build and ssisbliss build of the same projects side by side and compare
 what SSISDB records. Needs lab/tools/build-corpus.ps1 to have run (C:\\lab\\work\\corpus).
 
     lab.py run lab/tools/compare_build.py
@@ -38,7 +38,7 @@ def recorded(cat: SqlCatalog, folder: str) -> dict:
 
 
 def main() -> int:
-    cat = SqlCatalog(connection_string("localhost,14331", trust_server_certificate=True, app="onprem-compare"))
+    cat = SqlCatalog(connection_string("localhost,14331", trust_server_certificate=True, app="ssisbliss-compare"))
     cur = cat.conn.cursor()
     results = []
     for variant in ("basic", "configs", "drift", "pkgparams"):

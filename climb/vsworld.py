@@ -38,7 +38,7 @@ class VsWorld(World):
         w.work.mkdir(parents=True)
         shutil.copytree(BUILDS / variant / "src", w.project_dir)
         prod_rules = 'require_git_committed = true\nrequire_git_pushed = true\nconfirm = true\n'
-        (w.work / "onprem-ssis.toml").write_text("".join(
+        (w.work / "ssisbliss.toml").write_text("".join(
             f'[environments.{env}]\nserver = "fake://{env}"\n'
             f'server_name = "{name.replace(chr(92), chr(92) * 2)}"\n{prod_rules if env == "prod" else ""}\n'
             for env, name in SERVERS.items()))

@@ -1,4 +1,4 @@
-"""onprem-ssis build against Visual Studio (devenv) and SSISBuild.exe output for the same projects.
+"""ssisbliss build against Visual Studio (devenv) and SSISBuild.exe output for the same projects.
 
 tests/fixtures/build/<variant>/: src/ is the Visual Studio project, devenv-<config>.ispac and
 ssisbuild-<config>.ispac what the two Microsoft builds produced from it in the lab
