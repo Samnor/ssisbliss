@@ -208,6 +208,8 @@ def _chain_status(root: dict, links: list[dict], missing: list[str]) -> dict:
         link: dict = {"job": v["name"], "state": state}
         if v["running"]:
             link["since"] = v["running_since"]
+            if last.get("duration_s") is not None:
+                link["last_run_took_s"] = last["duration_s"]   # how long a run usually takes
         elif last:
             link["last_start"] = last.get("start")
             link["duration_s"] = last.get("duration_s")
@@ -237,7 +239,14 @@ def _chain_status(root: dict, links: list[dict], missing: list[str]) -> dict:
                    else "not started")
     out: dict = {"root": root["name"], "verdict": verdict, "run_started": run_start,
                  "schedules": root["schedules"], "links": states}
-    if verdict.startswith("stopped after"):
+    if running:
+        r = running[0]
+        took = f" (its last run took {r['last_run_took_s']} s)" if "last_run_took_s" in r else ""
+        out["why"] = (f"{r['job']} has been running since {r['since']}{took} and has not finished; nothing in this "
+                      f"chain has failed, so there is no error to find yet: history lists only finished runs, and "
+                      f"the links after it wait for it. Report it as still running (stuck if it runs far longer "
+                      f"than usual); stopping it is the server operator's call")
+    elif verdict.startswith("stopped after"):
         by_name = {v["name"]: v for v in links}
         reason = next((sk["reason"] for sk in by_name[done[-1]["job"]].get("skipped_starts", [])
                        if nxt["job"] in sk["would_start"]), None)

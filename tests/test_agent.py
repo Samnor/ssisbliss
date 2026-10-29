@@ -82,6 +82,8 @@ def test_chain_running():
     [c] = chain_of([job("1 A", "2026-10-29T07:00:00"),
                     job("2 B", "2026-10-28T07:00:05", running=True, since="2026-10-29T07:00:05")])
     assert c["verdict"] == "running: 2 B"
+    assert c["links"][1]["last_run_took_s"] == 5
+    assert "nothing in this chain has failed" in c["why"] and "last run took 5 s" in c["why"]
 
 
 def test_chain_stopped_by_a_step_that_quits_on_success():
