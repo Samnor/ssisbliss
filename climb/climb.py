@@ -71,7 +71,12 @@ Rules:
   other agents skip a skill that breaks this).
 - No client, company or personal names anywhere.
 - Add or update tests for the change; `uv run pytest -q` must pass.
-- When done, write a short description of the change (first line = summary) to {summary_file}."""
+- When done, write a short description of the change (first line = summary) to {summary_file}.
+
+Changes already tried, with what happened (do not repeat a reverted idea; if you build on one, say what is
+different and why it should do better):
+
+{history}"""
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -114,10 +119,11 @@ def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
     return cards
 
 
-def propose(run_dir: Path, card_md: str, summary_file: Path, model: str, budget: float) -> None:
+def propose(run_dir: Path, card_md: str, summary_file: Path, model: str, budget: float, history: str) -> None:
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
-    prompt = PROPOSE.format(scorecard=card_md, run_dirs=run_dir, summary_file=summary_file)
+    prompt = PROPOSE.format(scorecard=card_md, run_dirs=run_dir, summary_file=summary_file,
+                            history=history.strip() or "(none yet)")
     subprocess.run(["claude", "-p", prompt, "--model", model, "--permission-mode", "acceptEdits",
                     "--setting-sources", "project", "--max-budget-usd", str(budget),
                     "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep",
@@ -137,6 +143,8 @@ def main() -> None:
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
     p.add_argument("--baseline", help="existing climb evaluation dir (with matrix.json) to use as the baseline")
     p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint"], help="only this scenario suite")
+    p.add_argument("--history", action="append", default=[], metavar="LOG",
+                   help="log.md of an earlier climb, so the proposer knows what was tried (repeatable)")
     a = p.parse_args()
     agents = [x.strip() for x in a.agents.split(",") if x.strip()]
 
@@ -168,7 +176,8 @@ def main() -> None:
 
     for i in range(1, a.iterations + 1):
         summary_file = root / f"iter-{i}-proposal.md"
-        propose(best_dir, (best_dir / "matrix.md").read_text(), summary_file, a.proposer, budget=8.0)
+        history = "\n".join(Path(h).read_text() for h in a.history) + "\n" + (log.read_text() if log.exists() else "")
+        propose(best_dir, (best_dir / "matrix.md").read_text(), summary_file, a.proposer, budget=8.0, history=history)
         files = changed_files()
         summary = summary_file.read_text().strip() if summary_file.exists() else "(no summary)"
         title = summary.splitlines()[0][:72] if summary else "(no summary)"
