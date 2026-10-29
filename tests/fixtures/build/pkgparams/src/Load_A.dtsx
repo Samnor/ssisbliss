@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate="10/29/2026 8:35:11 AM"
+  DTS:CreationName="Microsoft.Package"
+  DTS:CreatorComputerName="LABHOST"
+  DTS:CreatorName="NT AUTHORITY\SYSTEM"
+  DTS:DTSID="{98213A43-6889-4E62-B82A-BC0EC7B664E7}"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:LastModifiedProductVersion="15.0.4470.1"
+  DTS:LocaleID="1033"
+  DTS:ObjectName="Load_A"
+  DTS:ProtectionLevel="0"
+  DTS:VersionGUID="{C3C4D29F-354A-4007-988F-543C8F5EB5FD}">
+  <DTS:Property
+    DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[Target]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{3934A336-9BF9-4AE5-8E80-01B1B926EF7F}"
+      DTS:ObjectName="Target">
+      <DTS:PropertyExpression
+        DTS:Name="ConnectionString">"Data Source=localhost;Initial Catalog=" + @[$Project::TargetDb] + ";Provider=MSOLEDBSQL;Integrated Security=SSPI;"</DTS:PropertyExpression>
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectionString="Data Source=localhost;Initial Catalog=STAGE;Provider=MSOLEDBSQL;Integrated Security=SSPI;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Variables />
+  <DTS:Executables>
+    <DTS:Executable
+      DTS:refId="Package\Step 1"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{30ED6E77-76EC-4010-81A0-04BA0F4ABE4F}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Step 1"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{3934A336-9BF9-4AE5-8E80-01B1B926EF7F}"
+          SQLTask:SqlStatementSource="INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Load_A step 1', 1);" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable
+      DTS:refId="Package\Step 2"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{5703A436-C925-4817-BABB-6CF94A238E88}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Step 2"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{3934A336-9BF9-4AE5-8E80-01B1B926EF7F}"
+          SQLTask:SqlStatementSource="INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Load_A step 2', 2);" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[{A51359E8-40A9-447C-9B44-B20829A3DDA2\}]"
+      DTS:CreationName=""
+      DTS:DTSID="{A51359E8-40A9-447C-9B44-B20829A3DDA2}"
+      DTS:From="Package\Step 1"
+      DTS:LogicalAnd="True"
+      DTS:ObjectName="{A51359E8-40A9-447C-9B44-B20829A3DDA2}"
+      DTS:To="Package\Step 2" />
+  </DTS:PrecedenceConstraints>
+</DTS:Executable>

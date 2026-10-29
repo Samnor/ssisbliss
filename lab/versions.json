@@ -1,0 +1,25 @@
+{
+  "2019-4470": {
+    "description": "SQL Server 2019 CU32 + KB5090407 (May 2026 security update)",
+    "build": "15.0.4470.1",
+    "instance_id_prefix": "MSSQL15",
+    "setup_bootstrap_url": "https://download.microsoft.com/download/8eeeb9bf-9880-4170-9de9-5676122cbd97/SQL2019-SSEI-Dev.exe",
+    "patch": {
+      "kb": "KB5090407",
+      "url": "https://download.microsoft.com/download/bb9b5d10-84c4-4cca-85bf-abb93a453f57/SQLServer2019-KB5090407-x64.exe"
+    },
+    "ssas_mode": "MULTIDIMENSIONAL",
+    "instances": [
+      {
+        "name": "SQLPROD",
+        "port": 14331,
+        "features": "SQLENGINE,FULLTEXT,AS,IS,MDS"
+      },
+      {
+        "name": "SQLTEST",
+        "port": 14332,
+        "features": "SQLENGINE,FULLTEXT"
+      }
+    ]
+  }
+}

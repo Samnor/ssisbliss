@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+dist/
+.ssis-base.json
+*.server.dtsx
+climb/runs/
+
+# Local only: sensitive test data and the privacy denylist (docs/private-data.md)
+/private/

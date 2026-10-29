@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate="10/29/2026 7:17:23 AM"
+  DTS:CreationName="Microsoft.Package"
+  DTS:CreatorComputerName="LABHOST"
+  DTS:CreatorName="NT AUTHORITY\SYSTEM"
+  DTS:DTSID="{33BAB71E-1F0F-4335-B276-751A6F9AC5A6}"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:LastModifiedProductVersion="15.0.4470.1"
+  DTS:LocaleID="1033"
+  DTS:ObjectName="Fetch_Prices"
+  DTS:ProtectionLevel="0"
+  DTS:VersionGUID="{A6C647E1-0844-4FDF-82F6-9610827C73DB}">
+  <DTS:Property
+    DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[Target]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{808C7104-72D6-4BED-AB4D-A4F21050C6BA}"
+      DTS:ObjectName="Target">
+      <DTS:PropertyExpression
+        DTS:Name="ConnectionString">"Data Source=" + @[$Project::TargetServer] + ";Initial Catalog=" + @[$Project::TargetDb] + ";Provider=MSOLEDBSQL;Integrated Security=SSPI;"</DTS:PropertyExpression>
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectionString="Data Source=localhost;Initial Catalog=BRONZE_API;Provider=MSOLEDBSQL;Integrated Security=SSPI;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Variables />
+  <DTS:Executables>
+    <DTS:Executable
+      DTS:refId="Package\Call price API"
+      DTS:CreationName="Microsoft.ExecuteProcess"
+      DTS:DTSID="{ECD36430-06E5-4878-ACAC-119984967661}"
+      DTS:ExecutableType="Microsoft.ExecuteProcess"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Call price API"
+      DTS:TaskContact="Execute Process Task;Microsoft Corporation; SQL Server 2019; © 2019 Microsoft Corporation; All Rights Reserved;http://www.microsoft.com/sql/support/default.asp;1"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <ExecuteProcessData
+          Executable="C:\Python312\python.exe"
+          Arguments="C:\lab\scripts\fetch_prices.py"
+          WorkingDirectory="C:\lab\scripts" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable
+      DTS:refId="Package\Log rows"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{163FE8E6-136A-43EC-AAC2-1C27F58023F8}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Log rows"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{808C7104-72D6-4BED-AB4D-A4F21050C6BA}"
+          SQLTask:SqlStatementSource="INSERT dbo.LoadLog (Package, RowsLoaded) SELECT N'Fetch_Prices', COUNT(*) FROM dbo.Product;" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable
+      DTS:refId="Package\Log start"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{72F52C42-3F6B-4ADB-B656-27EC1FE0F6E3}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Log start"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{808C7104-72D6-4BED-AB4D-A4F21050C6BA}"
+          SQLTask:SqlStatementSource="INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Fetch_Prices start', 0);" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[{608AD6F8-F889-423A-B712-DD16921249C9\}]"
+      DTS:CreationName=""
+      DTS:DTSID="{608AD6F8-F889-423A-B712-DD16921249C9}"
+      DTS:From="Package\Call price API"
+      DTS:LogicalAnd="True"
+      DTS:ObjectName="{608AD6F8-F889-423A-B712-DD16921249C9}"
+      DTS:To="Package\Log rows" />
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[{AF80E490-8FDE-4EFF-A4B9-2CBAE14511AD\}]"
+      DTS:CreationName=""
+      DTS:DTSID="{AF80E490-8FDE-4EFF-A4B9-2CBAE14511AD}"
+      DTS:From="Package\Log start"
+      DTS:LogicalAnd="True"
+      DTS:ObjectName="{AF80E490-8FDE-4EFF-A4B9-2CBAE14511AD}"
+      DTS:To="Package\Call price API" />
+  </DTS:PrecedenceConstraints>
+</DTS:Executable>

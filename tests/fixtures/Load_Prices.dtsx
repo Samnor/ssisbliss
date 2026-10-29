@@ -1,0 +1,120 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate="10/29/2026 7:17:23 AM"
+  DTS:CreationName="Microsoft.Package"
+  DTS:CreatorComputerName="LABHOST"
+  DTS:CreatorName="NT AUTHORITY\SYSTEM"
+  DTS:DTSID="{1CC02260-559F-415C-B476-9FCB76D8A77B}"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:LastModifiedProductVersion="15.0.4470.1"
+  DTS:LocaleID="1033"
+  DTS:ObjectName="Load_Prices"
+  DTS:ProtectionLevel="0"
+  DTS:VersionGUID="{FBE97BC7-4E0C-4801-8D1C-AD3BF99890BB}">
+  <DTS:Property
+    DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[Target]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{4D1319C1-98FC-4A34-80BA-9A41D2C1E7B9}"
+      DTS:ObjectName="Target">
+      <DTS:PropertyExpression
+        DTS:Name="ConnectionString">"Data Source=" + @[$Project::TargetServer] + ";Initial Catalog=" + @[$Project::TargetDb] + ";Provider=MSOLEDBSQL;Integrated Security=SSPI;"</DTS:PropertyExpression>
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectionString="Data Source=localhost;Initial Catalog=BRONZE_API;Provider=MSOLEDBSQL;Integrated Security=SSPI;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Variables />
+  <DTS:Executables>
+    <DTS:Executable
+      DTS:refId="Package\Check rows"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{BDC4D72B-973D-46D8-92BF-792F8276F9AA}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Check rows"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{4D1319C1-98FC-4A34-80BA-9A41D2C1E7B9}"
+          SQLTask:SqlStatementSource="IF NOT EXISTS (SELECT 1 FROM dbo.LoadLog WHERE Package = N'Load_Prices') THROW 50001, N'no rows loaded', 1;" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable
+      DTS:refId="Package\Load"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{17384A97-8B9D-4E50-B1BE-F5FA8CAA3069}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Load"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{4D1319C1-98FC-4A34-80BA-9A41D2C1E7B9}"
+          SQLTask:SqlStatementSource="INSERT dbo.LoadLog (Package, RowsLoaded) SELECT N'Load_Prices', COUNT(*) FROM dbo.Product;" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable
+      DTS:refId="Package\Log done"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{840EBAC7-D46E-47C4-B41A-77317D9FFB3F}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Log done"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{4D1319C1-98FC-4A34-80BA-9A41D2C1E7B9}"
+          SQLTask:SqlStatementSource="INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Load_Prices done', 0);" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable
+      DTS:refId="Package\Truncate staging"
+      DTS:CreationName="Microsoft.ExecuteSQLTask"
+      DTS:DTSID="{396D3AC0-6F31-4DF7-8B63-09F3F0EC5720}"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+      DTS:LocaleID="-1"
+      DTS:ObjectName="Truncate staging"
+      DTS:ThreadHint="0">
+      <DTS:Variables />
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+          SQLTask:Connection="{4D1319C1-98FC-4A34-80BA-9A41D2C1E7B9}"
+          SQLTask:SqlStatementSource="DELETE dbo.LoadLog WHERE Package = N'Load_Prices';" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[{3146148F-AE4A-4B10-8BA8-41A6EE515207\}]"
+      DTS:CreationName=""
+      DTS:DTSID="{3146148F-AE4A-4B10-8BA8-41A6EE515207}"
+      DTS:From="Package\Truncate staging"
+      DTS:LogicalAnd="True"
+      DTS:ObjectName="{3146148F-AE4A-4B10-8BA8-41A6EE515207}"
+      DTS:To="Package\Load" />
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[{9BB59062-2432-4FC6-9CD7-96890C89ECAF\}]"
+      DTS:CreationName=""
+      DTS:DTSID="{9BB59062-2432-4FC6-9CD7-96890C89ECAF}"
+      DTS:From="Package\Check rows"
+      DTS:LogicalAnd="True"
+      DTS:ObjectName="{9BB59062-2432-4FC6-9CD7-96890C89ECAF}"
+      DTS:To="Package\Log done" />
+    <DTS:PrecedenceConstraint
+      DTS:refId="Package.PrecedenceConstraints[{B529992A-49E0-4783-A5EE-4289060A819C\}]"
+      DTS:CreationName=""
+      DTS:DTSID="{B529992A-49E0-4783-A5EE-4289060A819C}"
+      DTS:From="Package\Load"
+      DTS:LogicalAnd="True"
+      DTS:ObjectName="{B529992A-49E0-4783-A5EE-4289060A819C}"
+      DTS:To="Package\Check rows" />
+  </DTS:PrecedenceConstraints>
+</DTS:Executable>

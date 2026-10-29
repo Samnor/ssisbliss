@@ -1,0 +1,59 @@
+{
+  "description": "Layered warehouse with SSIS catalog, CDC, history databases and numbered Agent job chains. Generic names only.",
+  "databases": [
+    {"name": "BRONZE_API"},
+    {"name": "BRONZE"},
+    {"name": "SILVER"},
+    {"name": "GOLD", "cdc_tables": ["Customer", "Product"]},
+    {"name": "GOLD_ARCHIVE", "read_only": true},
+    {"name": "GOLD_SALES", "cdc_tables": ["SalesOrder"]},
+    {"name": "GOLD_FINANCE"},
+    {"name": "GOLD_HR"},
+    {"name": "GOLD_HR_ARCHIVE", "read_only": true},
+    {"name": "OUTBOUND"},
+    {"name": "CONTROL"},
+    {"name": "AUDIT"}
+  ],
+  "projects": [
+    {"folder": "BRONZE_API", "project": "BRONZE_API", "target_db": "BRONZE_API",
+     "packages": ["Main", "Load_Customer", "Load_Product", "Load_SalesOrder"]},
+    {"folder": "BRONZE_API", "project": "IMPORTAPI", "target_db": "BRONZE_API",
+     "packages": [
+       {"name": "Fetch_Prices", "tasks": [
+         {"name": "Log start", "sql": "INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Fetch_Prices start', 0);"},
+         {"name": "Call price API", "python": "fetch_prices.py"},
+         {"name": "Log rows", "sql": "INSERT dbo.LoadLog (Package, RowsLoaded) SELECT N'Fetch_Prices', COUNT(*) FROM dbo.Product;"}]},
+       {"name": "Archive_Files", "tasks": [
+         {"name": "Archive inbox", "powershell": "archive_files.ps1"},
+         {"name": "Log archive", "sql": "INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Archive_Files', 0);"}]},
+       {"name": "Load_Prices", "tasks": [
+         {"name": "Truncate staging", "sql": "DELETE dbo.LoadLog WHERE Package = N'Load_Prices';"},
+         {"name": "Load", "sql": "INSERT dbo.LoadLog (Package, RowsLoaded) SELECT N'Load_Prices', COUNT(*) FROM dbo.Product;"},
+         {"name": "Check rows", "sql": "IF NOT EXISTS (SELECT 1 FROM dbo.LoadLog WHERE Package = N'Load_Prices') THROW 50001, N'no rows loaded', 1;"},
+         {"name": "Log done", "sql": "INSERT dbo.LoadLog (Package, RowsLoaded) VALUES (N'Load_Prices done', 0);"}]}]},
+    {"folder": "BRONZE", "project": "BRONZE", "target_db": "BRONZE",
+     "packages": ["Main", "Import_Customer", "Import_Product", "Import_SalesOrder"]},
+    {"folder": "SILVER", "project": "SILVER", "target_db": "SILVER",
+     "packages": ["Main", "Stage_Customer", "Stage_Product", "Stage_SalesOrder", "Stage_Ledger"]},
+    {"folder": "GOLD", "project": "GOLD", "target_db": "GOLD",
+     "packages": ["Main", "Dim_Customer", "Dim_Product", "Fact_SalesOrder", "Fact_Ledger"]},
+    {"folder": "GOLD_SALES", "project": "GOLD_SALES", "target_db": "GOLD_SALES",
+     "packages": ["Main", "Sales_Daily", "Sales_Customer"]},
+    {"folder": "GOLD_FINANCE", "project": "GOLD_FINANCE", "target_db": "GOLD_FINANCE",
+     "packages": ["Main", "Ledger", "Budget"]},
+    {"folder": "OUTBOUND", "project": "OUTBOUND", "target_db": "OUTBOUND",
+     "packages": ["Main", "Export_Sales"]},
+    {"folder": "CONTROL", "project": "CONTROL", "target_db": "CONTROL",
+     "packages": ["Main", "Sync_Frontend"]}
+  ],
+  "chain": ["BRONZE_API", "BRONZE", "SILVER", "GOLD", "GOLD_SALES", "GOLD_FINANCE", "OUTBOUND"],
+  "extra_jobs": [
+    {"name": "Load in progress guard", "kind": "guard"},
+    {"name": "SILVER on event", "kind": "ssis", "project": "SILVER"},
+    {"name": "Dimensions on load stop", "kind": "failing"},
+    {"name": "Fetch from price API", "kind": "ssis", "project": "IMPORTAPI", "package": "Fetch_Prices"},
+    {"name": "SILVER into history", "kind": "ssis", "project": "SILVER", "params": {"TargetDb": "GOLD_ARCHIVE"}},
+    {"name": "SSAS process (placeholder)", "kind": "noop", "enabled": false},
+    {"name": "Fetch from web API", "kind": "failing", "enabled": false}
+  ]
+}
