@@ -66,4 +66,13 @@ did not name the colleague up front (refused plans now start with `refused_becau
 after the fixes, the remaining Luna miss without the skill is the plan-id race (1/2), where it
 sometimes declines to apply a fresh plan it was told it can apply.
 
+`activity` and `strays` added four team scenarios (who else works on a package or a dependent one,
+deploying while a colleague changes a dependent package, cleaning up strays, a "leftover" that is on a
+colleague's branch). With the skill all six agents got all nine team scenarios right. Without it,
+the first run exposed two tool problems, both fixed: a deploy-plan warning worded so that agents
+stopped instead of deploying, and `strays` judging packages against a folder that was not the project
+(the repository root), which would have made every package look like a stray; it now refuses and
+names the right `--dir`. One scenario was also unfair (the developer's change renamed a column a
+colleague's package reads: GPT-6 Luna rightly stopped); it now adds a column instead.
+
 One run per scenario: a few points either way is noise.

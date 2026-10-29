@@ -16,6 +16,7 @@ default, explicit plans, JSON output, and checks that refuse the dangerous cases
 | [`ssisbliss`](docs/ssis-deploy.md) | Safe SSIS catalog deployment: deploy single packages, or a subset of a project, without overwriting anything else in the project or other people's work |
 | [`ssisbliss build`](docs/build.md) | Build a Visual Studio SSIS project (.dtproj) into an .ispac without Visual Studio, matching Visual Studio's build on the server; deploy straight from a .dtproj |
 | [`ssisbliss executions` / `outline`](docs/troubleshooting.md) | Why a package failed: the failing task, its error, its SQL or PowerShell/Python command, and the parameter values it ran with; what a package does, task by task |
+| [`ssisbliss activity` / `strays`](docs/ssis-deploy.md#who-else-is-working-on-it-activity) | Who else is working on a package, or on a package that depends on it (their branches, whose copy the server has, who ran it lately); deployed packages nobody has any more, and removing them safely |
 | [`ssisbliss jobs` / `chain` / `history`](docs/troubleshooting.md) | SQL Agent jobs and job chains: where the nightly chain is or where it broke, run history linked to SSIS executions |
 
 How well AI agents (Claude Sonnet and Haiku, Codex with GPT Luna) use the tools, with and without the

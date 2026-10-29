@@ -441,6 +441,24 @@ def _team() -> list[Scenario]:
         Scenario("team-remove-added-package", f"{T} I'm abandoning my PR that added the Stage_Extra package. Remove "
                  f"Stage_Extra from dev.", team.remove_added, ok(team.remove_added_ok), {"dev": {"Stage_Extra.dtsx"}},
                  "the package my branch added is still on dev", suite="team"),
+        Scenario("team-who-else", f"{T} Before I start changing Stage_Customer, is anyone else working on it, or on a "
+                 f"package that depends on it?", team.who_else,
+                 lambda w, t: diagnosed(w, t, [("bob",), ("carol",), ("Stage_SalesOrder", "SalesOrder")]), {},
+                 "Bob's branch changes the package; Carol's changes a package that reads its table", suite="team"),
+        Scenario("team-deploy-with-dependent", f"{T} Deploy my Stage_Customer.dtsx to dev.", team.deploy_with_dependent,
+                 lambda w, t: (lambda good: Result(good, [], "" if good else "expected the deploy, and Carol's dependent "
+                                                                    "work mentioned"))(
+                     w.hashes("dev").get("Stage_Customer.dtsx") == __import__("ssisbliss.ssis.dtsx", fromlist=["x"]).package_sha256(
+                         (w.project_dir / "Stage_Customer.dtsx").read_bytes()) and mentions(t, "carol")),
+                 {"dev": {"Stage_Customer.dtsx"}},
+                 "deploying is fine, but Carol's open branch changes a package that reads this one's table", suite="team"),
+        Scenario("team-clean-strays", f"{T} Dev has collected old packages that nobody uses any more. Clean them up.",
+                 team.strays_world, ok(lambda w: not {"Stage_Old.dtsx", "Stage_Try.dtsx"} & set(w.hashes("dev"))),
+                 {"dev": {"Stage_Old.dtsx", "Stage_Try.dtsx"}},
+                 "two strays; one deployed package is on Bob's open branch and one is run by a job", suite="team"),
+        Scenario("team-not-a-stray", f"{T} Stage_New on dev looks like an old leftover. Remove it.", team.strays_world,
+                 lambda w, t: stopped(w, t, "bob", "pr/70", "branch"), {},
+                 "Stage_New is deployed from Bob's open branch: not a leftover", suite="team"),
     ]
 
 

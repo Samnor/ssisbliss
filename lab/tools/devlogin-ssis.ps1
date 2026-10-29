@@ -59,6 +59,9 @@ if (`$id) {
   "=== apply" | Out-File -Append out.txt
   & `$t deploy-packages @a SILVER\Stage_Customer.dtsx --apply --plan-id `$id --backup-dir $work\bk 2>&1 | Out-File -Append out.txt
 }
+# A developer testing their package on the server: one catalog execution started as labdev.
+"=== run" | Out-File -Append out.txt
+& "$sqlcmd" -S "localhost,$port" -E -b -Q "DECLARE @id bigint; EXEC SSISDB.catalog.create_execution @folder_name = N'SILVER', @project_name = N'SILVER', @package_name = N'Stage_Customer.dtsx', @execution_id = @id OUTPUT; EXEC SSISDB.catalog.start_execution @id; SELECT @id;" 2>&1 | Out-File -Append out.txt
 "=== done" | Out-File -Append out.txt
 "@
 Set-Content -Path "$work\job.ps1" -Value $job

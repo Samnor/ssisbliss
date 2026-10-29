@@ -12,4 +12,7 @@ First release.
 - `ssisbliss build`: Visual Studio SSIS projects to `.ispac` without Visual Studio.
 - `ssisbliss executions` / `outline`, `ssisbliss jobs` / `chain` / `history`: why a
   nightly load or package failed, read-only.
+- `ssisbliss activity`: who else is working on a package or on one linked to it (git branches,
+  the server's copy, runs by people, Execute Package calls and tables); deploy plans warn about it.
+- `ssisbliss strays` and `remove-packages --strays`: find and safely remove deployed packages nobody has.
 - `ssisbliss install-skill`: the ssisbliss skill for Claude Code and Codex.

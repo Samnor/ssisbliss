@@ -87,6 +87,13 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
         return bool(d.get("ok")), f"login {d.get('login')}: your own deploys and already-undone ones do not block a rollback", raw
     check("rollback-others", rollback_others)
 
+    def activity_server():
+        raw = py("activity-server.py")
+        d = first_json(raw)
+        return (bool(d.get("ok")), f"run as {d.get('run_as')}; Main run by jobs {d.get('jobs_running_main')}; "
+                f"{d.get('main_runs_all')} agent runs hidden; people: {[r['by'] for r in d.get('customer_runs_by_people', [])]}", raw)
+    check("activity-server", activity_server)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

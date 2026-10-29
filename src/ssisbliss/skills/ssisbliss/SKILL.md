@@ -22,6 +22,9 @@ on a server without `--apply` and the `plan_id` of a plan you just made.
 5. **Never read the catalog's or server's files directly**; use the commands.
 6. **Plan id changed?** (exit 3) The server moved on: the output has a fresh plan whose checks
    ran again. If it can be applied, apply it with its new plan id; your package is the only one replaced.
+7. **Someone else is on it?** A plan check `others_working:Pkg` (a warning) means a colleague's branch changes
+   that package or one linked to it. It does not stop the deploy: apply the plan, then tell the developer who
+   and which branch in your answer.
 
 ## Deploying
 
@@ -35,10 +38,12 @@ on a server without `--apply` and the `plan_id` of a plan you just made.
 | also a new or changed project parameter / connection manager | add `--item Name` (each one by name; the rest stay as deployed) |
 | the whole project, like Visual Studio's Deploy | `deploy-project ... --dtproj X.dtproj --all` (still checks every package) |
 | put dev back to main after a PR | `ssisbliss deploy-packages ... path/Pkg.dtsx --from-ref main` |
-| remove a package their branch added | `ssisbliss remove-packages --env dev --folder F --project P Pkg` |
+| remove a package their branch added | `ssisbliss remove-packages --env dev --folder F --project P Pkg` (someone else's leftover: `--strays Pkg`) |
 | undo a bad deploy of one package | put back its earlier version from git: `deploy-packages ... path/Pkg.dtsx --from-ref main` (or the commit before yours) |
 | undo a whole bad deploy | `ssisbliss versions ...`, then `ssisbliss rollback ... --to-lsn N`; refused if others deployed since (it would undo their work): then use the git way above |
 | what is on dev compared to me | `ssisbliss status --env dev --folder F --project P --dir path/to/dtsx` |
+| is anyone else working on Pkg, or on a package that depends on it? | `ssisbliss activity --env dev --folder F --project P --dir path/to/dtsx Pkg` (`--fetch` refreshes the team's branches first; no names: every package someone else touches). Report its `summary`: who, which branch, which linked package |
+| clean up old / stray / leftover packages on dev | `ssisbliss strays --env dev --folder F --project P --dir path/to/dtsx`, then its `remove_command` (`remove-packages ... --strays`), plan then apply. It removes only verdict `stray`; tell the developer about the others and why they stay |
 | prod | the same commands with `--env prod`; prod takes only committed and pushed packages and needs `--confirm-env prod` |
 
 Package names: `Pkg` or `Pkg.dtsx` both work. A file named in a different case than the deployed

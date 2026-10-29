@@ -33,6 +33,9 @@ class FakeAgent:
     def steps(self) -> list[dict]:
         return self.state["steps"]
 
+    def run_as_accounts(self) -> set[str]:
+        return {a.lower() for a in self.state.get("run_as", [])}
+
     def history(self, job_name: str, runs: int) -> list[dict]:
         rows = [r for r in self.state["history"] if r["job"] == job_name]
         keep = sorted({r["run_id"] for r in rows}, reverse=True)[:runs]

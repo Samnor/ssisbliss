@@ -341,10 +341,16 @@ class FakeCatalog:
     # --- executions (set by tests and climb worlds; saved with the rest of the state)
     def executions(self, folder=None, project=None, package=None, statuses=None, since_hours=None, limit=20,
                    execution_id=None) -> list[dict]:
+        since = None
+        if since_hours is not None:
+            from datetime import datetime, timedelta, timezone
+            since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()[:19]
         rows = [r for r in self.execution_rows
                 if (folder is None or r["folder_name"] == folder) and (project is None or r["project_name"] == project)
-                and (package is None or r["package_name"] == package) and (not statuses or r["status"] in statuses)
-                and (execution_id is None or r["execution_id"] == execution_id)]
+                and (package is None or r["package_name"].lower() == package.lower())
+                and (not statuses or r["status"] in statuses)
+                and (execution_id is None or r["execution_id"] == execution_id)
+                and (since is None or str(r.get("start_time", ""))[:19] >= since)]
         return sorted(rows, key=lambda r: -r["execution_id"])[:limit]
 
     def execution_events(self, execution_id: int, message_types: tuple[int, ...] = (120, 130)) -> list[dict]:

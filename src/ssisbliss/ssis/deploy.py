@@ -416,9 +416,11 @@ def plan_project(catalog: Catalog, folder: str, project: str, source: Ispac, onl
 
 def plan_remove(catalog: Catalog, folder: str, project: str, names: list[str], bases: dict[str, str] | None = None,
                 overwrite: set[str] | frozenset = frozenset(), allow_running: bool = False,
-                base_lsns: dict[str, int] | None = None) -> Plan:
+                base_lsns: dict[str, int] | None = None, stray: dict[str, list[str]] | None = None) -> Plan:
     """Remove packages from a deployed project (SSISDB has no per-package delete: catalog.deploy_project
-    with the deployed project minus those packages). Only packages whose server copy is your version."""
+    with the deployed project minus those packages). Only packages whose server copy is your version,
+    or, with stray (name -> reasons it is not a stray), packages nobody has: not in the default branch,
+    on no branch, called by nothing, run by no job and by nobody lately."""
     plan = Plan("remove-packages", folder, project, method="deploy_project")
     if not names:
         plan.check("input", "error", "name at least one package to remove")
@@ -439,7 +441,18 @@ def plan_remove(catalog: Catalog, folder: str, project: str, names: list[str], b
         plan.check("input", "error", "that would remove every package; a project keeps at least one")
         return plan
     for n in names:
-        _check_overwrite(plan, n, current[n], (bases or {}).get(n), set(overwrite))
+        if stray is not None:
+            blockers = next((v for k, v in stray.items() if k.lower() == n.lower()), ["not checked"])
+            if not blockers:
+                plan.check(f"stray:{n}", "ok", "a stray: not in the default branch, on no branch, called by no "
+                                               "package, run by no job or person lately")
+            elif n in overwrite:
+                plan.check(f"stray:{n}", "warn", f"removing although {'; '.join(blockers)} (--overwrite)")
+            else:
+                plan.check(f"stray:{n}", "error", f"not a stray: {'; '.join(blockers)}. Ask whoever works on it, "
+                                                  f"or pass --overwrite {n} if they agreed")
+        else:
+            _check_overwrite(plan, n, current[n], (bases or {}).get(n), set(overwrite))
         plan.changes.append({"package": n, "change": "remove", "sha256": current[n], "current_sha256": current[n],
                              "base_sha256": (bases or {}).get(n)})
     retained = sorted(set(current) - set(names))

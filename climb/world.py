@@ -17,6 +17,29 @@ SERVERS = {"dev": "LABSQL\\DEV", "stage": "LABSQL\\STAGE", "prod": "LABSQL\\PROD
 ME, COLLEAGUE = "LAB\\me", "LAB\\bob"
 
 
+def task_package(name: str, revision: int = 1, sql: list[str] = (), calls: list[str] = ()) -> bytes:
+    """A package with Execute SQL tasks (statements) and Execute Package tasks (project references)."""
+    from xml.sax.saxutils import quoteattr
+    tasks = "".join(
+        f'<DTS:Executable DTS:refId="Package\\SQL {i}" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="SQL {i}">'
+        f'<DTS:ObjectData><SQLTask:SqlTaskData xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" '
+        f'SQLTask:Connection="{{00000000-0000-0000-0000-000000000001}}" SQLTask:SqlStatementSource={quoteattr(q)} />'
+        f'</DTS:ObjectData></DTS:Executable>' for i, q in enumerate(sql, 1))
+    tasks += "".join(
+        f'<DTS:Executable DTS:refId="Package\\Run {c}" DTS:ExecutableType="Microsoft.ExecutePackageTask" DTS:ObjectName="Run {c}">'
+        f'<DTS:ObjectData><ExecutePackageTask><UseProjectReference>True</UseProjectReference>'
+        f'<PackageName>{c}</PackageName></ExecutePackageTask></DTS:ObjectData></DTS:Executable>' for c in calls)
+    import uuid
+    return f"""<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package"
+  DTS:ObjectName="{name.removesuffix('.dtsx')}" DTS:DTSID="{{{uuid.uuid5(uuid.NAMESPACE_URL, name)}}}"
+  DTS:VersionGUID="{{{uuid.uuid4()}}}" DTS:VersionBuild="{revision}" DTS:ProtectionLevel="0">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>{tasks}</DTS:Executables>
+</DTS:Executable>
+""".encode()
+
+
 def package(name: str, revision: int = 1, **kw) -> bytes:
     return dtsx(name, body=f'<DTS:Variable xmlns:DTS="www.microsoft.com/SqlServer/Dts" '
                            f'expr="@[$Project::TargetDb] rev {revision}"/>', revision=revision, **kw)
@@ -77,6 +100,26 @@ class World:
         git(self.root, "init", "-q", "-b", "main", "--bare", "origin.git")
         git(self.work, "remote", "add", "origin", str(self.root / "origin.git"))
         git(self.work, "push", "-q", "-u", "origin", "HEAD")
+
+    def colleague_branch(self, branch: str, who: str, files: dict[str, bytes | None], email: str | None = None,
+                         start: str = "main") -> None:
+        """A colleague clones the team repository, changes files in the project folder (None deletes one)
+        on their own branch and pushes it; the developer has fetched since."""
+        clone = self.root / f"clone-{who.lower()}-{branch.replace('/', '-')}"
+        git(self.root, "clone", "-q", str(self.root / "origin.git"), str(clone))
+        env = {"GIT_AUTHOR_NAME": who, "GIT_AUTHOR_EMAIL": email or f"{who.lower()}@example.com",
+               "GIT_COMMITTER_NAME": who, "GIT_COMMITTER_EMAIL": email or f"{who.lower()}@example.com"}
+        git(clone, "checkout", "-q", "-b", branch, f"origin/{start}")
+        for name, data in files.items():
+            path = clone / self.project_folder / name
+            if data is None:
+                path.unlink()
+            else:
+                path.write_bytes(data)
+        git(clone, "add", "-A")
+        git(clone, "commit", "-q", "-m", f"{who}: work on {', '.join(files)}", env=env)
+        git(clone, "push", "-q", "origin", branch)
+        git(self.work, "fetch", "-q", "origin")
 
     def push(self) -> None:
         git(self.work, "push", "-q", "origin", "HEAD")
@@ -143,6 +186,8 @@ class World:
         (w.work / "ssisbliss.toml").write_text(toml)
         (w.work / ".gitignore").write_text(".ssis-base.json\n*.server.dtsx\nbin/\n")
         git(w.work, "init", "-q", "-b", "main")
+        git(w.work, "config", "user.email", "dev@example.com")
+        git(w.work, "config", "user.name", "dev")
         git(w.work, "add", "-A")
         git(w.work, "commit", "-q", "-m", "STAGE project as released")
         w.add_team_remote()
@@ -175,8 +220,8 @@ class World:
         c.save()
 
 
-def git(cwd: Path, *args: str) -> None:
+def git(cwd: Path, *args: str, env: dict | None = None) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
                    env={"GIT_AUTHOR_NAME": "dev", "GIT_AUTHOR_EMAIL": "dev@example.com",
                         "GIT_COMMITTER_NAME": "dev", "GIT_COMMITTER_EMAIL": "dev@example.com",
-                        "HOME": str(cwd), "PATH": "/usr/bin:/bin:/usr/local/bin"})
+                        "HOME": str(cwd), "PATH": "/usr/bin:/bin:/usr/local/bin", **(env or {})})

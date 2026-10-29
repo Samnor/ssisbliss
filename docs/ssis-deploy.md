@@ -105,9 +105,58 @@ Many developers, each on a PR branch, deploying iteratively to the same dev or s
 | a colleague changed the same package | the plan stops and names who deployed since your version; agree with them, then `pull` and merge, or `--overwrite` |
 | your PR is merged: put dev back to main | `deploy-packages ... STAGE/Load_A.dtsx --from-ref main` |
 | your PR is abandoned: remove the package it added | `remove-packages --env dev --folder F --project P Load_New` (only if the server copy is yours) |
+| is anyone else working on a package, or on one that depends on it? | `activity --env dev --folder F --project P --dir STAGE Load_A` (see below) |
+| clean up packages nobody has any more | `strays --env dev --folder F --project P --dir STAGE`, then `remove-packages ... --strays` (see below) |
 | switch branch or worktree and keep going | nothing to do: your records follow the repository |
 
 Other packages and project items on the server are never touched by any of these.
+
+## Who else is working on it? (`activity`)
+
+```bash
+ssisbliss activity --env dev --folder STAGE --project STAGE --dir STAGE Stage_Customer [--fetch]
+ssisbliss activity --env dev --folder STAGE --project STAGE --dir STAGE      # every package someone else touches
+```
+
+For each package, read-only:
+
+- **branches**: the team's remote branches that change it compared with the default branch, with the
+  author of the last change, when, and how many commits (`--fetch` runs `git fetch` first; otherwise
+  the branches are as of your last fetch);
+- **server**: whose version the server has, matched by content: the default branch's, yours (your base
+  record), a version from someone's branch (named), or a version on no branch at all (someone's
+  unpushed work, with the latest project deploys and who made them). SSISDB records who deployed the
+  project and when, but not which packages a deploy contained, so content is how the tool tells;
+- **recent_runs_by_people**: catalog executions of the package started by people in the last
+  `--days` (14), leaving out SQL Agent's own runs (its service account and proxy accounts);
+- **jobs**: SQL Agent job steps that run it;
+- **depends_on / used_by**: packages linked to it by an Execute Package task, or by a table one writes
+  and the other reads (from Execute SQL tasks and data-flow sources, destinations and lookups), each
+  with anyone working on it; including links that only exist on a colleague's branch. SQL built at run
+  time (expressions, variables, files) cannot be followed and is listed under `not_followed`;
+- **summary**: the above in one sentence.
+
+Deploy plans run the same check for every package they deploy: a colleague on it or on a linked
+package gives a warning `others_working:<package>` (never an error: parallel work is normal, and
+overwriting someone's deployed work is already refused).
+
+## Stray packages (`strays`, `remove-packages --strays`)
+
+A stray is a deployed package that is not in the default branch and not in your working copy, is on
+no branch, is called by no other package, is run by no SQL Agent job, and that nobody ran in the
+last `--days` (30). `strays` lists every package that is not in the default branch with that evidence
+and a verdict (`stray`, `check first`, `keep for now`), plus the commit that removed it from the
+default branch when there is one, and a `remove_command` for the strays:
+
+```bash
+ssisbliss strays --env dev --folder STAGE --project STAGE --dir STAGE
+ssisbliss remove-packages --env dev --folder STAGE --project STAGE --dir STAGE --strays [Pkg ...]
+```
+
+`remove-packages --strays` (no names: every stray) re-checks each package in the plan and refuses one
+that is not a stray, naming why (whose branch, which caller or job, who ran it when);
+`--overwrite Pkg` removes it anyway once its owner agreed. Like any removal it is a project redeploy
+of the deployed project minus those packages, with a backup and verification.
 
 ## Checks (all run in the plan)
 

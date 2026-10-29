@@ -46,6 +46,71 @@ def _catalog(env: Environment, a) -> SqlCatalog:
                                         a.trust_server_certificate or env.trust_server_certificate))
 
 
+def _agent(env: Environment, a):
+    """The environment's SQL Agent (jobs that run packages, accounts they run as), or None."""
+    try:
+        if env.server.startswith("fake://"):
+            from ..agent.fake import FakeAgent
+            from .fake import fake_location
+            loc = fake_location(env.server)
+            return FakeAgent.load(loc) if (Path(loc) / "msdb.json").exists() else None
+        from ..agent.source import SqlAgent
+        return SqlAgent(env.server, a.sql_user or env.sql_user, a.trust_server_certificate or env.trust_server_certificate)
+    except Exception:   # noqa: BLE001 - no msdb access: activity works without job information
+        return None
+
+
+def _activity(directory: Path, cat, env: Environment, a, folder: str, project: str, server: Ispac | None,
+              fetch: bool = False, days: float = 14, with_agent: bool = True):
+    from .activity import Activity, local_packages
+    from .gitscan import scan
+    info = cat.server_info()
+    key = base.target_key(info.server_name, folder, project)
+    local = local_packages(directory) if directory.is_dir() else {}
+    p = cat.project(folder, project)
+    return Activity(scan(directory, fetch=fetch), server=server, local=local,
+                    bases=base.entries([directory / n for n in (server.package_names if server else [])], key),
+                    catalog=cat, folder=folder, project=project, agent=_agent(env, a) if with_agent else None,
+                    days=days, versions=cat.versions(p.project_id) if p else [])
+
+
+def _wrong_project_folder(act, directory: str) -> str | None:
+    """Strays are judged against the project folder on the default branch: refuse a --dir whose default-branch
+    folder shares no package with the deployed project (the repository root, another project), since
+    then every deployed package would look like a stray."""
+    scan = act.scan
+    deployed = {n.lower() for n in act.server_hashes}
+    if scan is None or not scan.default or set(scan.main_packages) & deployed:
+        return None
+    from .gitscan import _git
+    paths = (_git(scan.root, "ls-tree", "-r", "--name-only", scan.default) or "").splitlines()
+    folders: dict[str, int] = {}
+    for path in paths:
+        folder, _, name = path.rpartition("/")
+        if name.lower() in deployed:
+            folders[folder] = folders.get(folder, 0) + 1
+    best = max(folders, key=folders.get) if folders else None
+    hint = f"; the project's packages are in {best or '.'}/ on {scan.default}: pass --dir {best or '.'}" if best is not None else ""
+    return (f"--dir {directory} has none of the deployed packages on {scan.default}, so every package would look like a "
+            f"stray{hint}")
+
+
+def _others_working_checks(plan: Plan, directory: Path, names: list[str], cat, env: Environment, a) -> None:
+    """Warnings (never errors) when someone else is changing a package being deployed, or a package
+    linked to it: parallel work is normal, but the developer should know before it lands on the server."""
+    if plan.server_ispac is None or not names:
+        return
+    try:
+        act = _activity(directory, cat, env, a, plan.folder, plan.project, plan.server_ispac, with_agent=False)
+    except Exception:   # noqa: BLE001 - activity is advice; never let it break a deploy plan
+        return
+    for n in names:
+        r = act.report(n)
+        if not r["summary"].startswith("nobody else"):
+            plan.check(f"others_working:{n}", "warn", r["summary"] + ". Not a reason to stop: the plan can be "
+                       "applied. Mention it to the developer in your answer (`ssisbliss activity` has the details)")
+
+
 def _env_checks(plan: Plan, env: Environment, files: list[Path]) -> None:
     if env.name:
         plan.extra["environment"] = env.name
@@ -323,6 +388,8 @@ def cmd_deploy_packages(a) -> int:
         plan.extra["from_ref"] = ref_info
     elif plan.server_ispac is not None:
         _other_local_changes(plan, files, key)
+    if files:
+        _others_working_checks(plan, files[0].parent, [c["package"] for c in plan.to_deploy], cat, env, a)
     _env_checks(plan, env, files)
 
     def after(lsn: int) -> None:
@@ -447,6 +514,7 @@ def cmd_deploy_project(a) -> int:
     if a.all:
         plan.extra["all"] = ("every package in the build, each checked for others' changes; packages that are only "
                              "on the server are kept (Visual Studio's Deploy would remove them)")
+    _others_working_checks(plan, base_dirs[0], [c["package"] for c in plan.to_deploy if c.get("package")], cat, env, a)
     # The .dtsx sources (what git tracks) live in the project folder, not beside the built .ispac.
     _env_checks(plan, env, [base_dirs[0] / n for n in only] if env.require_git_committed else [])
 
@@ -465,15 +533,85 @@ def cmd_remove_packages(a) -> int:
     key = base.target_key(info.server_name, a.folder, a.project)
     folder = Path(a.dir)
     names = [n if n.lower().endswith(".dtsx") else f"{n}.dtsx" for item in a.packages for n in item.split(",") if n]
+    stray = None
+    if a.strays:
+        from .activity import stray_blockers, strays
+        act = _activity(folder, cat, env, a, a.folder, a.project, Ispac(cat.get_project(a.folder, a.project)),
+                        days=a.days)
+        if not names:
+            names = [r["package"] for r in strays(act, set()) if r["verdict"] == "stray"]
+            if not names:
+                return emit({"status": "noop", "reason": "no strays: every deployed package is in the default branch, "
+                             "on a branch, called, run by a job or run lately (see `ssisbliss strays`)"})
+        wrong = _wrong_project_folder(act, a.dir)
+        if wrong:
+            return emit({"error": wrong}, EXIT_REFUSED)
+        stray = {n: stray_blockers(act, n) for n in names}
+    elif not names:
+        raise ValueError("name the packages to remove, or pass --strays")
     plan = plan_remove(cat, a.folder, a.project, names, bases=base.lookup([folder / n for n in names], key),
                        overwrite=set(a.overwrite), allow_running=a.allow_running,
-                       base_lsns=base.lsns([folder / n for n in names], key))
+                       base_lsns=base.lsns([folder / n for n in names], key), stray=stray)
     _env_checks(plan, env, [])
 
     def after(lsn: int) -> None:
         base.forget(folder, key, [c["package"] for c in plan.to_deploy])
 
     return _finish(a, env, cat, plan, after)
+
+
+def cmd_activity(a) -> int:
+    """Who else is working on these packages, or on packages linked to them."""
+    env = _env(a)
+    cat = _catalog(env, a)
+    p = cat.project(a.folder, a.project)
+    server = Ispac(cat.get_project(a.folder, a.project)) if p else None
+    act = _activity(Path(a.dir), cat, env, a, a.folder, a.project, server, fetch=a.fetch, days=a.days)
+    names = [n if n.lower().endswith(".dtsx") else f"{n}.dtsx" for item in a.packages for n in item.split(",") if n]
+    doc: dict = {"target": f"{env.name or env.server}/{a.folder}/{a.project}",
+                 "note": "information for the developer, not a block: when they asked for a deploy, deploy (overwriting "
+                         "someone's deployed work is refused by the plan itself) and tell them who else is working where"}
+    if act.scan is None:
+        doc["git"] = {"note": f"{a.dir} is not in a git repository: only the server's side is shown"}
+    else:
+        doc["git"] = {"default_branch": act.scan.default, "branches_with_package_changes": len(act.scan.branches),
+                      "fetched": act.scan.fetched, **({"note": act.scan.note} if act.scan.note else {})}
+        if not a.fetch:
+            doc["git"]["hint"] = "uses remote branches as of your last fetch; add --fetch to refresh them first"
+    if names:
+        doc["packages"] = [act.report(n) for n in names]
+    else:
+        everything = sorted({*act.server_hashes, *act.local}, key=str.lower)
+        reports = [act.report(n) for n in everything]
+        doc["packages"] = [r for r in reports if not r["summary"].startswith("nobody else")]
+        doc["quiet"] = len(reports) - len(doc["packages"])
+    return emit(doc)
+
+
+def cmd_strays(a) -> int:
+    """Deployed packages that are not in the default branch or your working copy."""
+    from .activity import strays
+    env = _env(a)
+    cat = _catalog(env, a)
+    if cat.project(a.folder, a.project) is None:
+        return emit({"error": f"project {a.folder}/{a.project} not found"}, EXIT_REFUSED)
+    server = Ispac(cat.get_project(a.folder, a.project))
+    act = _activity(Path(a.dir), cat, env, a, a.folder, a.project, server, fetch=a.fetch, days=a.days)
+    if act.scan is None or not act.scan.default:
+        return emit({"error": f"{a.dir} is not in a git repository with a default branch; strays are packages the "
+                              f"default branch does not have"}, EXIT_REFUSED)
+    wrong = _wrong_project_folder(act, a.dir)
+    if wrong:
+        return emit({"error": wrong}, EXIT_REFUSED)
+    found = strays(act, set(act.local))
+    doc: dict = {"target": f"{env.name or env.server}/{a.folder}/{a.project}", "default_branch": act.scan.default,
+                 "strays": found}
+    removable = [r["package"] for r in found if r["verdict"] == "stray"]
+    if removable:
+        target = f"--env {env.name}" if env.name else f'--server "{env.server}"'
+        doc["remove_command"] = (f'ssisbliss remove-packages {target} --folder "{a.folder}" --project "{a.project}" '
+                                 f'--dir "{a.dir}" --strays ' + " ".join(removable))
+    return emit(doc)
 
 
 def cmd_rollback(a) -> int:
@@ -496,6 +634,9 @@ Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT):
   one changed .dtsx            deploy-packages T X/Load_B.dtsx
   all my changes (unnamed)     status T --dir X, then its deploy_your_changes (git status misses
                                changes already committed on the branch)
+  who else works on Load_B?    activity T --dir X Load_B   (others' branches, whose copy the server
+                               has, runs by people, packages linked by Execute Package or tables)
+  old / stray packages         strays T --dir X, then remove-packages T --dir X --strays
   also deploy project params / connection managers   add --project-items update
 
 Every deploy runs twice: first without --apply (prints a plan with checks and a
@@ -509,7 +650,10 @@ Environments with require_git_committed / require_git_pushed (usually prod) take
 the developer has committed / pushed themselves. Never commit, push or add a git remote on
 their behalf to satisfy those settings: if a file is not committed or not pushed, stop and
 tell the developer.
-Read-only: inspect, versions, outline, executions (failed packages: executions --failed).
+Someone else working on a package or a linked one (activity, or an others_working warning
+in a plan) is information, not a block: deploy when the developer asked for it, and tell them who
+is working where.
+Read-only: inspect, versions, outline, executions (failed packages: executions --failed), activity, strays.
 """
 
 def parser() -> argparse.ArgumentParser:
@@ -564,6 +708,21 @@ def parser() -> argparse.ArgumentParser:
     target(s)
     s.add_argument("--dir", default=".", help="folder with your .dtsx files (default: here)")
     s.set_defaults(fn=cmd_status)
+
+    s = sub.add_parser("activity", help="who else is working on packages, or on packages linked to them")
+    target(s)
+    s.add_argument("packages", nargs="*", help="packages to look at (default: every package someone else touches)")
+    s.add_argument("--dir", default=".", help="your project folder in the git repository (default: here)")
+    s.add_argument("--fetch", action="store_true", help="git fetch first, so the team's branches are current")
+    s.add_argument("--days", type=float, default=14, help="how far back to look for runs by people (default 14)")
+    s.set_defaults(fn=cmd_activity)
+
+    s = sub.add_parser("strays", help="deployed packages that are not in the default branch, with the evidence")
+    target(s)
+    s.add_argument("--dir", default=".", help="your project folder in the git repository (default: here)")
+    s.add_argument("--fetch", action="store_true", help="git fetch first, so the team's branches are current")
+    s.add_argument("--days", type=float, default=30, help="a run by someone this recent means check first (default 30)")
+    s.set_defaults(fn=cmd_strays)
 
     s = sub.add_parser("install-skill", help="install the ssisbliss skill for Claude Code and/or Codex (user level)")
     s.add_argument("--claude", action="store_true", help="~/.claude/skills/ssisbliss")
@@ -622,10 +781,13 @@ def parser() -> argparse.ArgumentParser:
     applying(s)
     s.set_defaults(fn=cmd_deploy_project)
 
-    s = sub.add_parser("remove-packages", help="remove packages you deployed (e.g. ones your branch added)")
+    s = sub.add_parser("remove-packages", help="remove packages you deployed (e.g. ones your branch added), or strays")
     target(s)
-    s.add_argument("packages", nargs="+", help="package names (.dtsx optional)")
+    s.add_argument("packages", nargs="*", help="package names (.dtsx optional); with --strays, default: every stray")
     s.add_argument("--dir", default=".", help="your project folder, for your base records (default: here)")
+    s.add_argument("--strays", action="store_true",
+                   help="remove packages that are strays (see `ssisbliss strays`), whoever deployed them")
+    s.add_argument("--days", type=float, default=30, help="with --strays: a run this recent blocks removal")
     s.add_argument("--overwrite", action="append", default=[], metavar="PACKAGE",
                    help="remove even though the server copy is not your version")
     applying(s)

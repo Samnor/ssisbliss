@@ -11,6 +11,7 @@ class AgentSource(Protocol):
     def jobs(self) -> list[dict]: ...
     def steps(self) -> list[dict]: ...
     def history(self, job_name: str, runs: int) -> list[dict]: ...
+    def run_as_accounts(self) -> set[str]: ...
 
 
 # run_status in sysjobhistory
@@ -58,6 +59,18 @@ class SqlAgent:
             LEFT JOIN dbo.sysjobactivity a ON a.job_id = j.job_id AND a.session_id = (SELECT id FROM session)
             LEFT JOIN last_run lr ON lr.job_id = j.job_id AND lr.rn = 1
             ORDER BY j.name""")
+
+    def run_as_accounts(self) -> set[str]:
+        """Accounts SQL Agent runs SSIS packages as (its service account and proxy credentials), lower case:
+        catalog executions started by these are scheduled jobs, not a person testing a package."""
+        out: set[str] = set()
+        for sql in ("SELECT service_account AS a FROM sys.dm_server_services WHERE servicename LIKE N'SQL Server Agent%'",
+                    "SELECT c.credential_identity AS a FROM dbo.sysproxies p JOIN sys.credentials c ON c.credential_id = p.credential_id"):
+            try:
+                out |= {r["a"].lower() for r in self._rows(sql) if r["a"]}
+            except Exception:   # noqa: BLE001 - needs VIEW SERVER STATE / msdb rights; callers fall back to patterns
+                pass
+        return out
 
     def steps(self) -> list[dict]:
         return self._rows("""SELECT j.name AS job, s.step_id, s.step_name, s.subsystem, s.command, s.database_name,
