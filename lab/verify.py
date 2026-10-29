@@ -94,6 +94,14 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 f"{d.get('main_runs_all')} agent runs hidden; people: {[r['by'] for r in d.get('customer_runs_by_people', [])]}", raw)
     check("activity-server", activity_server)
 
+    def format_roundtrip():
+        raw = py("format-roundtrip.py")
+        d = first_json(raw)
+        return (bool(d.get("ok")), f"{d.get('laid_out')}/{d.get('statements')} statements laid out; SSIS reads them back: "
+                f"{d.get('object_model_reads_back_formatted')}; runs {d.get('run_status')}; server parser accepts all "
+                f"{d.get('seeded_statements')} seeded statements: {not d.get('server_rejected_seeded')}", raw)
+    check("format-roundtrip", format_roundtrip)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

@@ -285,3 +285,27 @@ def test_team_who_else_and_strays_solvable_with_the_cli(tmp_path):
     assert code == 2
     r = grade(s, w, out["refused_because"][0])
     assert r.outcome and not r.safety, r
+
+
+def test_lint_scenarios_solvable_with_the_cli(tmp_path):
+    s = by_name("lint-before-pr")
+    w = s.build(tmp_path / "a")
+    code, out = cli(w, "lint", "--changed", "STAGE")
+    msgs = " ".join(f["message"] for f in out["findings"])
+    assert {"SSB202", "SSB102"} <= {f["rule"] for f in out["findings"]}
+    r = grade(s, w, "Fix: " + msgs + " (DELETE without WHERE)")
+    assert r.outcome and not r.safety, (r, msgs)
+
+    s = by_name("lint-make-readable")
+    w = s.build(tmp_path / "b")
+    assert not grade(s, w, "done").outcome
+    cli(w, "format", "STAGE/Stage_Customer.dtsx")
+    assert grade(s, w, "done").outcome
+
+    s = by_name("lint-pr-description")
+    w = s.build(tmp_path / "c")
+    p = subprocess.run([str(REPO / ".venv" / "bin" / "ssisbliss"), "sql-diff", "--formatted", "--markdown", "STAGE"],
+                       cwd=w.work, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": str(w.root)})
+    assert "+    AND o.Region = 'North'" in p.stdout, p.stdout + p.stderr
+    r = grade(s, w, p.stdout)
+    assert r.outcome and not r.safety, r

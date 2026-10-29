@@ -75,4 +75,12 @@ stopped instead of deploying, and `strays` judging packages against a folder tha
 names the right `--dir`. One scenario was also unfair (the developer's change renamed a column a
 colleague's package reads: GPT-6 Luna rightly stopped); it now adds a column instead.
 
+The `lint` suite (check a package before a pull request, lay out its SQL, write the SQL changes for
+the PR description), two runs each: with the skill Sonnet and Haiku 6/6, GPT-6 Luna 6/6 after a
+grader fix. The first run exposed a skill problem: its description named only deploying and
+troubleshooting, so agents asked to make SQL readable did not load it and tried to edit the .dtsx
+XML by hand (literal line breaks in an attribute become spaces when SSIS reads the file); the
+description now covers linting, laying out SQL and pull requests. Without the skill, Haiku still
+tries the hand edit (0/2); `--help` now warns against it.
+
 One run per scenario: a few points either way is noise.

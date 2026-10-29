@@ -803,3 +803,16 @@ def test_a_refused_plan_starts_with_why(cat, tmp_path, monkeypatch, capsys):
     code, plan = run_cli(monkeypatch, capsys, cat, "deploy-packages", *t, str(tmp_path / "Load_A.dtsx"))
     assert code == EXIT_REFUSED and next(iter(plan)) == "refused_because"
     assert "LAB\\bob" in plan["refused_because"][0]
+
+
+def test_install_skill_for_copilot_and_vs_code(tmp_path, monkeypatch, capsys):
+    code, out = run_cli(monkeypatch, capsys, None, "install-skill", "--home", str(tmp_path), "--copilot")
+    dest = tmp_path / ".copilot" / "skills" / "ssisbliss" / "SKILL.md"
+    assert code == 0 and out["installed"] == [str(dest)]
+    # VS Code's rules: name matches the folder, lowercase letters, digits and hyphens, at most 64;
+    # description at most 1024 characters (a skill that breaks them silently does not load).
+    import re as _re
+    head = dest.read_text().split("---")[1]
+    name = _re.search(r"^name: (.+)$", head, _re.M).group(1).strip()
+    desc = _re.search(r"^description: (.+)$", head, _re.M).group(1).strip()
+    assert name == dest.parent.name and _re.fullmatch(r"[a-z0-9-]{1,64}", name) and len(desc) <= 1024

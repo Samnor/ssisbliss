@@ -98,7 +98,7 @@ def main() -> None:
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
     p.add_argument("--baseline", help="existing run dir to use as the baseline")
-    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard"], help="only this scenario suite")
+    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint"], help="only this scenario suite")
     a = p.parse_args()
 
     if changed_files():

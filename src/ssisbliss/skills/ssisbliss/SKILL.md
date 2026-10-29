@@ -1,6 +1,6 @@
 ---
 name: ssisbliss
-description: Deploy SSIS packages safely to SQL Server catalogs (SSISDB) with ssisbliss, and find out why SQL Agent job chains or SSIS packages failed with ssisbliss chain, history and executions. Use for any request to deploy, build, roll back or remove SSIS packages or projects, put dev back to main, or explain a failed nightly load, a broken job chain or a failed package.
+description: SSIS packages (.dtsx) and SQL Server SSIS catalogs (SSISDB) with the ssisbliss command. Use for any request to deploy, build, roll back or remove SSIS packages or projects; to check who else is working on a package or clean up stray packages on a server; to lint packages, lay out the SQL inside .dtsx files readably, or write the SQL changes of a pull request (never edit SQL in a .dtsx by hand); and to explain a failed nightly load, a broken SQL Agent job chain or a failed package.
 ---
 
 # ssisbliss
@@ -48,6 +48,15 @@ on a server without `--apply` and the `plan_id` of a plan you just made.
 
 Package names: `Pkg` or `Pkg.dtsx` both work. A file named in a different case than the deployed
 package is deployed as that package (with a warning).
+
+## Reviewing packages and their SQL
+
+| The developer wants | Command |
+|---|---|
+| check packages before a PR / review | `ssisbliss lint --changed path/to/dtsx` (all: without `--changed`). Report errors and warnings by package, task and line; do not fix them yourself unless asked |
+| SQL in a package laid out readably | `ssisbliss format path/Pkg.dtsx` (only when they ask: it rewrites their file; `--check` changes nothing) |
+| the SQL changes for a PR description | `ssisbliss sql-diff --formatted --markdown path/to/dtsx`: paste its output (git shows a package's SQL as one long line) |
+| is this SQL valid on the server? | `ssisbliss lint --env dev path/Pkg.dtsx` (rule SSB210: the server's own parser) |
 
 ## Why did it fail?
 

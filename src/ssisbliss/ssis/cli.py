@@ -274,22 +274,25 @@ def skill_text() -> str:
 
 
 def cmd_install_skill(a) -> int:
-    """Install the ssisbliss skill for Claude Code and/or Codex, user level (nothing goes into the repository)."""
+    """Install the ssisbliss skill at user level (nothing goes into the repository) for Claude Code, Codex and
+    GitHub Copilot, which includes Copilot in VS Code (~/.copilot/skills; VS Code's local sessions also read
+    ~/.claude/skills)."""
     if a.print:
         sys.stdout.write(skill_text())
         return EXIT_OK
     home = Path(a.home).expanduser() if a.home else Path.home()
-    targets = {"claude": home / ".claude" / "skills", "codex": home / ".codex" / "skills"}
-    chosen = [t for t in ("claude", "codex") if getattr(a, t)] or [t for t, d in targets.items() if d.parent.exists()]
+    targets = {"claude": home / ".claude" / "skills", "codex": home / ".codex" / "skills",
+               "copilot": home / ".copilot" / "skills"}
+    chosen = [t for t in targets if getattr(a, t)] or [t for t, d in targets.items() if d.parent.exists()]
     if not chosen:
-        raise ValueError("neither ~/.claude nor ~/.codex exists; pass --claude or --codex to create one")
+        raise ValueError("none of ~/.claude, ~/.codex or ~/.copilot exists; pass --claude, --codex or --copilot to create one")
     written = []
     for t in chosen:
         dest = targets[t] / "ssisbliss" / "SKILL.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(skill_text(), encoding="utf-8")
         written.append(str(dest))
-    return emit({"installed": written, "note": "agents pick it up in new sessions"})
+    return emit({"installed": written, "note": "agents pick it up in new sessions (in VS Code: a new chat)"})
 
 
 def cmd_versions(a) -> int:
@@ -614,6 +617,187 @@ def cmd_strays(a) -> int:
     return emit(doc)
 
 
+# ---------------------------------------------------------- lint, format, sql-diff --
+
+def _package_files(paths: list[str]) -> list[Path]:
+    out: list[Path] = []
+    for p in map(Path, paths or ["."]):
+        if p.is_file():
+            out.append(p)
+        elif p.is_dir():
+            out += [f for f in sorted(p.rglob("*.dtsx")) if not f.name.lower().endswith(".server.dtsx")
+                    and not ({"bin", "obj", ".git"} & {x.lower() for x in f.relative_to(p).parts[:-1]})]
+        else:
+            raise ValueError(f"{p} does not exist")
+    return out
+
+
+def _changed_files(files: list[Path], base_ref: str | None) -> tuple[list[Path], str]:
+    """The files that differ from the base (default: where this branch left the default branch), committed or not."""
+    from .gitscan import _default_branch, _git
+    if not files:
+        return files, ""
+    root_s = _git(files[0].resolve().parent, "rev-parse", "--show-toplevel")
+    if not root_s:
+        raise ValueError("--changed needs a git repository")
+    root = Path(root_s)
+    ref = base_ref or _default_branch(root)
+    if not ref:
+        raise ValueError("--changed: no default branch found; pass --base REF")
+    base = _git(root, "merge-base", ref, "HEAD") or ref
+    changed = set((_git(root, "diff", "--name-only", base) or "").splitlines())
+    changed |= set((_git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines())
+    return [f for f in files if str(f.resolve().relative_to(root)) in changed], ref
+
+
+def _baseline_path(directory: Path) -> Path:
+    import hashlib
+    return base.state_dir() / "lint-baseline" / (hashlib.sha256(base.repository_id(directory).encode()).hexdigest()[:20] + ".json")
+
+
+def cmd_lint(a) -> int:
+    from .lint import RULES, SEVERITY, lint_package, server_parse
+    from .sqlsites import sites
+    files = _package_files(a.paths)
+    ref = ""
+    if a.changed:
+        files, ref = _changed_files(files, a.base)
+    ignore = {r.strip().upper() for x in a.ignore for r in x.split(",") if r.strip()}
+    findings = []
+    for f in files:
+        findings += [x for x in lint_package(str(f), f.read_bytes(), a.max_line) if x.rule not in ignore]
+    if a.env and "SSB210" not in ignore:
+        env = _env(a)
+        conn = _catalog(env, a)
+        raw = getattr(conn, "conn", None)
+        if raw is None:
+            raise ValueError(f"--env {env.name}: server parsing needs a real server connection")
+        for f in files:
+            for s in sites(f.read_bytes()):
+                if s.dynamic:
+                    continue
+                err = server_parse(raw, s.sql)
+                if err:
+                    from .lint import Finding
+                    findings.append(Finding("SSB210", "error", str(f), s.task, s.path, 1, 1,
+                                            f"{env.name or env.server} rejects it: {err}", "fix the SQL"))
+    baselined = 0
+    bpath = _baseline_path(files[0].parent if files else Path("."))
+    if a.update_baseline:
+        bpath.parent.mkdir(parents=True, exist_ok=True)
+        bpath.write_text(json.dumps(sorted({x.fingerprint() for x in findings}), indent=1))
+    elif bpath.exists() and not a.no_baseline:
+        known = set(json.loads(bpath.read_text()))
+        baselined = sum(1 for x in findings if x.fingerprint() in known)
+        findings = [x for x in findings if x.fingerprint() not in known]
+    counts = {sev: sum(1 for x in findings if x.severity == sev) for sev in ("error", "warn", "info")}
+    fail = SEVERITY[a.fail_on] if a.fail_on != "never" else 99
+    doc: dict = {"packages": len(files), **({"compared_with": ref} if a.changed else {}), "counts": counts,
+                 **({"baselined": baselined} if baselined else {}),
+                 **({"baseline_written": str(bpath)} if a.update_baseline else {}),
+                 "findings": [x.to_dict() for x in findings]}
+    if counts["warn"] or counts["error"]:
+        fixable = sorted({x.file for x in findings if x.rule == "SSB301"})
+        if fixable:
+            doc["format_command"] = "ssisbliss format " + " ".join(f'"{x}"' for x in fixable)
+    if a.rules:
+        doc = {"rules": {k: {"name": v[0], "severity": v[1], "what": v[2]} for k, v in RULES.items()}}
+    return emit(doc, EXIT_REFUSED if any(SEVERITY[x.severity] >= fail for x in findings) else EXIT_OK)
+
+
+def cmd_format(a) -> int:
+    from .sqlformat import format_sql
+    from .sqlsites import replace, sites
+    files = _package_files(a.paths)
+    if a.changed:
+        files, _ = _changed_files(files, a.base)
+    report, would_change = [], 0
+    for f in files:
+        data = f.read_bytes()
+        found = sites(data)
+        changes, skipped = {}, []
+        for i, st in enumerate(found):
+            if st.dynamic:
+                continue
+            new, why = format_sql(st.sql)
+            if why:
+                skipped.append({"task": st.path, "reason": why})
+            elif new != st.sql:
+                changes[i] = new
+        entry: dict = {"file": str(f), "statements": len(found), "laid_out": len(changes)}
+        if skipped:
+            entry["left_as_is"] = skipped
+        if changes:
+            would_change += 1
+            new_data = replace(data, changes, found)
+            after = sites(new_data)          # the safety net: only the intended SQL changed
+            ok = (len(after) == len(found) and all(after[i].sql == changes.get(i, found[i].sql) for i in range(len(found)))
+                  and package_sha256(new_data) != "")
+            if not ok:
+                entry["error"] = "the rewritten package did not read back as intended; left unchanged"
+            elif not a.check:
+                f.write_bytes(new_data)
+                entry["written"] = True
+        report.append(entry)
+    doc = {"files": len(files), "would_change" if a.check else "changed": would_change, "packages": report}
+    if a.check and would_change:
+        doc["fix"] = "ssisbliss format " + " ".join(f'"{e["file"]}"' for e in report if e["laid_out"])
+    return emit(doc, EXIT_REFUSED if a.check and would_change else EXIT_OK)
+
+
+def cmd_sql_diff(a) -> int:
+    import difflib
+    from .gitscan import _default_branch, _git, _git_bytes
+    from .sqlformat import format_sql
+    from .sqlsites import sites
+    files = _package_files(a.paths)
+    root_s = _git(Path(a.paths[0] if a.paths else ".").resolve() if Path(a.paths[0] if a.paths else ".").is_dir()
+                  else Path(a.paths[0]).resolve().parent, "rev-parse", "--show-toplevel")
+    if not root_s:
+        raise ValueError("sql-diff needs a git repository")
+    root = Path(root_s)
+    ref = a.base or _default_branch(root)
+    if not ref:
+        raise ValueError("no default branch found; pass --base REF")
+    merge_base = _git(root, "merge-base", ref, "HEAD") or ref
+    changed = set((_git(root, "diff", "--name-only", merge_base) or "").splitlines())
+    changed |= set((_git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines())
+    removed = [Path(root, n) for n in (_git(root, "diff", "--name-only", "--diff-filter=D", merge_base) or "").splitlines()
+               if n.lower().endswith(".dtsx")]
+    norm = (lambda q: format_sql(q)[0]) if a.formatted else (lambda q: q)
+    packages = []
+    for f in files + [r for r in removed if r not in files]:
+        rel = str(f.resolve().relative_to(root)) if f.exists() else str(f.relative_to(root))
+        if rel not in changed and f.exists():
+            continue
+        old = _git_bytes(root, "show", f"{merge_base}:{rel}")
+        new = f.read_bytes() if f.exists() else None
+        before = {(s.kind, s.path, s.extra.get("property", "")): s for s in (sites(old) if old else [])}
+        after = {(s.kind, s.path, s.extra.get("property", "")): s for s in (sites(new) if new else [])}
+        tasks = []
+        for key in list(before) + [k for k in after if k not in before]:
+            b, n = before.get(key), after.get(key)
+            bs, ns = (norm(b.sql) if b else ""), (norm(n.sql) if n else "")
+            if bs == ns:
+                continue
+            diff = "".join(difflib.unified_diff((bs + "\n").splitlines(True) if b else [], (ns + "\n").splitlines(True) if n else [],
+                                               f"{rel} ({ref})", f"{rel}", n=3))
+            tasks.append({"task": key[1], "change": "added" if not b else "removed" if not n else "changed", "diff": diff})
+        if tasks or old is None or new is None:
+            packages.append({"package": rel, "status": "added" if old is None else "removed" if new is None else "changed",
+                             "sql_changes": tasks})
+    if a.markdown:
+        lines = [f"### SQL changes (compared with `{ref}`)", ""]
+        if not any(p["sql_changes"] for p in packages):
+            lines.append("No SQL changed.")
+        for p in packages:
+            for t in p["sql_changes"]:
+                lines += [f"**{p['package']}** › `{t['task']}` ({t['change']})", "", "```diff", t["diff"].rstrip("\n"), "```", ""]
+        sys.stdout.write("\n".join(lines).rstrip() + "\n")
+        return EXIT_OK
+    return emit({"compared_with": ref, "merge_base": merge_base, "formatted": bool(a.formatted), "packages": packages})
+
+
 def cmd_rollback(a) -> int:
     env = _env(a)
     cat = _catalog(env, a)
@@ -637,6 +821,11 @@ Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT):
   who else works on Load_B?    activity T --dir X Load_B   (others' branches, whose copy the server
                                has, runs by people, packages linked by Execute Package or tables)
   old / stray packages         strays T --dir X, then remove-packages T --dir X --strays
+  check packages before a PR   lint --changed X        (lint --rules lists the rules)
+  readable SQL in packages     format X/Load_B.dtsx    (only whitespace and keyword case change)
+  SQL changes for a PR         sql-diff --formatted --markdown X
+  (never edit SQL inside a .dtsx by hand: an attribute's line breaks must be stored as &#xA;,
+   and a literal line break turns into a space when SSIS reads the file; format does it right)
   also deploy project params / connection managers   add --project-items update
 
 Every deploy runs twice: first without --apply (prints a plan with checks and a
@@ -724,9 +913,45 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--days", type=float, default=30, help="a run by someone this recent means check first (default 30)")
     s.set_defaults(fn=cmd_strays)
 
-    s = sub.add_parser("install-skill", help="install the ssisbliss skill for Claude Code and/or Codex (user level)")
-    s.add_argument("--claude", action="store_true", help="~/.claude/skills/ssisbliss")
+    s = sub.add_parser("lint", help="check packages and their SQL: correctness, and SQL readable in a pull request")
+    s.add_argument("paths", nargs="*", help=".dtsx files or folders (default: here, recursively; bin/obj skipped)")
+    s.add_argument("--changed", action="store_true", help="only packages changed since this branch left the default branch")
+    s.add_argument("--base", help="with --changed / sql-diff: compare with this ref instead of the default branch")
+    s.add_argument("--ignore", action="append", default=[], metavar="RULES", help="rule ids to skip, e.g. SSB203,SSB304")
+    s.add_argument("--max-line", type=int, default=120, help="longest SQL line after layout (default 120)")
+    s.add_argument("--fail-on", choices=["error", "warn", "info", "never"], default="error",
+                   help="exit 2 when a finding is this severe or worse (default error)")
+    s.add_argument("--update-baseline", action="store_true",
+                   help="accept today's findings: later runs report only new ones (kept per user, not in the repository)")
+    s.add_argument("--no-baseline", action="store_true", help="report everything, including baselined findings")
+    s.add_argument("--rules", action="store_true", help="list the rules")
+    g = s.add_argument_group("server parsing (optional)")
+    g.add_argument("--env", help="also parse every statement with this environment's SQL Server (SET PARSEONLY)")
+    g.add_argument("--server", help=argparse.SUPPRESS)
+    g.add_argument("--config", help="path to ssisbliss.toml")
+    g.add_argument("--sql-user", help="SQL login; password from SSISBLISS_SQL_PASSWORD")
+    g.add_argument("--trust-server-certificate", action="store_true")
+    s.set_defaults(fn=cmd_lint)
+
+    s = sub.add_parser("format", help="lay out the SQL in packages readably (only whitespace and keyword case change)")
+    s.add_argument("paths", nargs="*", help=".dtsx files or folders (default: here, recursively)")
+    s.add_argument("--check", action="store_true", help="change nothing; exit 2 if any package would change")
+    s.add_argument("--changed", action="store_true", help="only packages changed since this branch left the default branch")
+    s.add_argument("--base", help="with --changed: compare with this ref")
+    s.set_defaults(fn=cmd_format)
+
+    s = sub.add_parser("sql-diff", help="the SQL changes in packages compared with the default branch, readable")
+    s.add_argument("paths", nargs="*", help=".dtsx files or folders (default: here, recursively)")
+    s.add_argument("--base", help="compare with this ref (default: where this branch left the default branch)")
+    s.add_argument("--markdown", action="store_true", help="print a Markdown section for a pull request (not JSON)")
+    s.add_argument("--formatted", action="store_true", help="lay out both sides first, so only real changes show")
+    s.set_defaults(fn=cmd_sql_diff)
+
+    s = sub.add_parser("install-skill", help="install the ssisbliss skill for Claude Code, Codex and GitHub Copilot "
+                                             "(also in VS Code), user level")
+    s.add_argument("--claude", action="store_true", help="~/.claude/skills/ssisbliss (Claude Code, VS Code local sessions)")
     s.add_argument("--codex", action="store_true", help="~/.codex/skills/ssisbliss")
+    s.add_argument("--copilot", action="store_true", help="~/.copilot/skills/ssisbliss (GitHub Copilot, in VS Code and the CLI)")
     s.add_argument("--home", help=argparse.SUPPRESS)
     s.add_argument("--print", action="store_true", help="print the skill instead of installing it")
     s.set_defaults(fn=cmd_install_skill)
