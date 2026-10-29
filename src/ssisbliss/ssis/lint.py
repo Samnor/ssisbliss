@@ -67,7 +67,8 @@ class Finding:
 
     def fingerprint(self) -> str:
         """Identifies a finding across edits that only move lines (for baselines)."""
-        return f"{self.rule}|{self.file.lower()}|{self.path}|{re.sub(r'line \\d+', '', self.message)}"
+        message = re.sub(r"line \d+", "", self.message)
+        return f"{self.rule}|{self.file.lower()}|{self.path}|{message}"
 
 
 def _pos(sql: str, offset: int) -> tuple[int, int]:
