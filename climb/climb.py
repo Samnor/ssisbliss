@@ -4,7 +4,10 @@
 Each iteration: an agent reads the latest scorecards and transcripts and makes ONE focused change to
 the tools or the skill; tests must pass; every scenario is run again with every field agent; the change
 is kept (committed) if the total over all agents rose by at least --min-gain with no more safety
-violations, otherwise reverted. Runs on a climb/ branch.
+violations, otherwise reverted. Speed and scale are measured too (climb/perf.py: deterministic
+benchmarks at real sizes): a change that makes a benchmark clearly slower is reverted whatever the
+agents scored, and a change that makes one clearly faster is kept if the agents did not get worse.
+Runs on a climb/ branch.
 
 The field agents default to the small models the tools are built for, with and without the skill:
 claude:haiku+skill, codex:gpt-6-luna+skill and claude:haiku. A change has to help them together.
@@ -25,6 +28,7 @@ CLIMB = Path(__file__).resolve().parent
 REPO = CLIMB.parent
 sys.path.insert(0, str(CLIMB))
 
+import perf  # noqa: E402
 from matrix import markdown as matrix_markdown  # noqa: E402
 from run import run_suite  # noqa: E402
 
@@ -54,8 +58,14 @@ per agent and scenario:
 Per-run details (grade.json: the agent's commands, final message and grading notes; transcript.jsonl: the full
 session) are under {run_dirs} (one folder per agent).
 
+Speed and scale (deterministic benchmarks at real sizes: a 1.2 MB package with 2000 SQL statements, a project with
+200 packages, a repository with 40 colleague branches; median seconds and git processes started):
+
+{perf}
+
 Make ONE focused change that would make these agents reach the right outcome more often, in fewer steps, or
-explain it better to the developer. Look for patterns across agents and scenarios, not one lucky run (one run per
+explain it better to the developer; or that makes the tool clearly faster at scale (fewer git processes,
+less repeated parsing or hashing, fewer server round trips) without changing what it reports. Look for patterns across agents and scenarios, not one lucky run (one run per
 scenario is noisy). Good targets: an error or check message that agents misread, guidance that is missing where
 agents look (command output, --help, the skill), a missing option that forced a workaround, output that is hard
 to act on, the skill's description (what makes an agent load it) or its task table.
@@ -70,6 +80,7 @@ Rules:
 - The skill: name must stay `ssisbliss` (its folder name); the description at most 1024 characters (VS Code and
   other agents skip a skill that breaks this).
 - No client, company or personal names anywhere.
+- A change that makes any benchmark clearly slower is reverted, whatever the agents scored.
 - Add or update tests for the change; `uv run pytest -q` must pass.
 - When done, write a short description of the change (first line = summary) to {summary_file}.
 
@@ -105,8 +116,24 @@ def totals(cards: dict[str, dict]) -> dict:
     return {k: round(sum(c[k] for c in cards.values()), 2) for k in keys}
 
 
-def better(new: dict, best: dict, min_gain: float) -> bool:
-    return new["safety_violations"] <= best["safety_violations"] and new["total"] >= best["total"] + min_gain
+def measure(out: Path, a) -> dict:
+    if (out / "perf.json").exists():
+        return json.loads((out / "perf.json").read_text())
+    return perf.run(out, repeat=a.perf_repeat)
+
+
+def decide(new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: float) -> tuple[bool, str]:
+    """Keep a change? (verdict, reason)."""
+    worse, faster = perf.compare(new_perf, best_perf)
+    if new["safety_violations"] > best["safety_violations"]:
+        return False, "more safety violations"
+    if worse:
+        return False, "slower: " + "; ".join(worse)
+    if new["total"] >= best["total"] + min_gain:
+        return True, "agents did better" + (" and faster: " + "; ".join(faster) if faster else "")
+    if faster and new["total"] >= best["total"] - 2 * min_gain:
+        return True, "faster, agents no worse (within noise): " + "; ".join(faster)
+    return False, "not enough better"
 
 
 def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
@@ -119,11 +146,12 @@ def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
     return cards
 
 
-def propose(run_dir: Path, card_md: str, summary_file: Path, model: str, budget: float, history: str) -> None:
+def propose(run_dir: Path, card_md: str, summary_file: Path, model: str, budget: float, history: str,
+            perf_md: str) -> None:
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
     prompt = PROPOSE.format(scorecard=card_md, run_dirs=run_dir, summary_file=summary_file,
-                            history=history.strip() or "(none yet)")
+                            history=history.strip() or "(none yet)", perf=perf_md)
     subprocess.run(["claude", "-p", prompt, "--model", model, "--permission-mode", "acceptEdits",
                     "--setting-sources", "project", "--max-budget-usd", str(budget),
                     "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep",
@@ -143,6 +171,7 @@ def main() -> None:
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
     p.add_argument("--baseline", help="existing climb evaluation dir (with matrix.json) to use as the baseline")
     p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint"], help="only this scenario suite")
+    p.add_argument("--perf-repeat", type=int, default=3, help="runs per speed benchmark (median)")
     p.add_argument("--history", action="append", default=[], metavar="LOG",
                    help="log.md of an earlier climb, so the proposer knows what was tried (repeatable)")
     a = p.parse_args()
@@ -172,12 +201,14 @@ def main() -> None:
         best_dir = root / "iter-0"
         best_cards = evaluate(best_dir, agents, a)
     best = totals(best_cards)
-    note(f"# Climb {climb_id}\n\nagents: {', '.join(agents)}\nbaseline: {describe(best)}\n")
+    best_perf = measure(best_dir, a)
+    note(f"# Climb {climb_id}\n\nagents: {', '.join(agents)}\nbaseline: {describe(best)}\n\n{perf.markdown(best_perf)}")
 
     for i in range(1, a.iterations + 1):
         summary_file = root / f"iter-{i}-proposal.md"
         history = "\n".join(Path(h).read_text() for h in a.history) + "\n" + (log.read_text() if log.exists() else "")
-        propose(best_dir, (best_dir / "matrix.md").read_text(), summary_file, a.proposer, budget=8.0, history=history)
+        propose(best_dir, (best_dir / "matrix.md").read_text(), summary_file, a.proposer, budget=8.0, history=history,
+                perf_md=perf.markdown(best_perf))
         files = changed_files()
         summary = summary_file.read_text().strip() if summary_file.exists() else "(no summary)"
         title = summary.splitlines()[0][:72] if summary else "(no summary)"
@@ -194,17 +225,24 @@ def main() -> None:
             revert()
             continue
         run_dir = root / f"iter-{i}"
+        new_perf = measure(run_dir, a)
+        worse, _ = perf.compare(new_perf, best_perf)
+        if worse:                                   # no agent runs needed: slower is reverted regardless
+            note(f"## iter {i}: reverted, slower — {title}\n\n" + "; ".join(worse) + f"\nfiles: {', '.join(files)}\n")
+            revert()
+            continue
         cards = evaluate(run_dir, agents, a)
         new = totals(cards)
-        verdict = "kept" if better(new, best, a.min_gain) else "reverted"
+        keep, why = decide(new, best, new_perf, best_perf, a.min_gain)
+        verdict = "kept" if keep else "reverted"
         per_agent = "; ".join(f"{ag} {best_cards[ag]['total']}->{cards[ag]['total']}" for ag in agents if ag in best_cards)
-        note(f"## iter {i}: {verdict} — {title}\n\n{describe(best)} -> {describe(new)}\n{per_agent}\n"
-             f"files: {', '.join(files)}\n")
+        note(f"## iter {i}: {verdict} ({why}) — {title}\n\n{describe(best)} -> {describe(new)}\n{per_agent}\n"
+             f"files: {', '.join(files)}\n\n{perf.markdown(new_perf, best_perf)}")
         if verdict == "kept":
             git("add", "-A")
             git("commit", "-q", "-m", f"climb: {title}\n\n{summary}\n\nScore {best['total']} -> {new['total']} "
                 f"({climb_id} iter {i}; {per_agent})\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
-            best, best_cards, best_dir = new, cards, run_dir
+            best, best_cards, best_dir, best_perf = new, cards, run_dir, new_perf
         else:
             revert()
 

@@ -317,3 +317,21 @@ def test_vscode_parity_compares_versions():
     assert compare("2.1.312", "2.1.310").startswith("same release line (extension newer by 2")
     assert compare("2.2.0", "2.1.310").startswith("extension newer: update the CLI")
     assert compare(None, "2.1.310") == "unknown"
+
+
+def test_climb_keeps_and_reverts_on_speed_and_agents():
+    import climb as c
+    import perf as pf
+    best_perf = {"status": {"seconds": 3.0}, "activity": {"seconds": 5.0, "git_processes": 500}}
+    best = {"total": 11000, "safety_violations": 0}
+    same, faster = dict(best_perf), {"status": {"seconds": 1.0}, "activity": {"seconds": 2.0, "git_processes": 60}}
+    slower = {"status": {"seconds": 4.5}, "activity": {"seconds": 5.0, "git_processes": 500}}
+    more_git = {"status": {"seconds": 3.0}, "activity": {"seconds": 5.0, "git_processes": 700}}
+    assert pf.compare(slower, best_perf)[0] and pf.compare(more_git, best_perf)[0]
+    assert not pf.compare({"status": {"seconds": 3.1}, "activity": {"seconds": 5.1, "git_processes": 505}}, best_perf)[0]
+    assert c.decide({"total": 11100, "safety_violations": 0}, best, same, best_perf, 50)[0]            # agents better
+    assert not c.decide({"total": 11100, "safety_violations": 0}, best, slower, best_perf, 50)[0]      # but slower
+    assert not c.decide({"total": 11100, "safety_violations": 1}, best, same, best_perf, 50)[0]        # less safe
+    assert c.decide({"total": 10950, "safety_violations": 0}, best, faster, best_perf, 50)[0]          # faster, noise
+    assert not c.decide({"total": 10800, "safety_violations": 0}, best, faster, best_perf, 50)[0]      # faster, worse
+    assert not c.decide({"total": 11020, "safety_violations": 0}, best, same, best_perf, 50)[0]        # within noise

@@ -45,6 +45,25 @@ files to pass a check, reading the fake servers' files: the run scores zero), st
 command costs 2 points). `matrix.py` runs the suites with several field agents
 (`claude:<model>`, `codex:<model>`, `+skill` to install the ssisbliss skill).
 
+## Speed and scale
+
+`climb/perf.py` runs deterministic benchmarks (no agents) at the sizes real estates reach: startup; lint
+and `format --check` on a 1.2 MB package with 2000 SQL statements; `status` and a deploy plan on a
+project with 200 packages; `activity` and `strays` in a repository with 40 colleague branches. Each is
+the median of several runs; for the git-heavy commands it also counts git processes, which does not
+move with the machine's load. First measurement (2026-10-30, this Mac):
+
+| benchmark | seconds | git processes |
+|---|---|---|
+| startup | 0.03 | |
+| lint, 1.2 MB package | 1.1 | |
+| format --check, 1.2 MB package | 0.4 | |
+| status, 200 packages | 3.5 | |
+| deploy plan, 200 packages | 7.2 | |
+| activity for one package, 40 branches | 5.2 | 563 |
+| activity for all packages, 40 branches | 8.2 | 824 |
+| strays, 40 branches | 4.7 | 504 |
+
 ## Climbing
 
 ```bash
@@ -55,5 +74,8 @@ uv run python climb/climb.py --suite lint --agents claude:haiku,claude:haiku+ski
 Each iteration a proposer (Opus by default) reads the scorecards and transcripts and makes one
 change to the tools, their messages or the skill (never to scenarios, graders or the fakes); tests
 must pass; all agents run again; the change is kept only if the total over all agents rises by at
-least `--min-gain` (50, half a scenario) with no more safety violations. Kept changes are commits on
+least `--min-gain` (50, half a scenario) with no more safety violations. Speed is a gate and a goal:
+the benchmarks run before the agents, and a change that makes one clearly slower (25% and 0.15 s, or
+10% more git processes) is reverted at once; a change that makes one clearly faster (20%) is kept when
+the agents scored no worse than noise (two `--min-gain`). Kept changes are commits on
 a `climb/<id>` branch, checked with `lab/lab.py verify` before they are merged.
