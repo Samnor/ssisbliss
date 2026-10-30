@@ -7,6 +7,8 @@ live in the SSIS repository:
     [environments.dev]
     server = "devsql01\\SQL01"         # ODBC server string
     server_name = "DEVSQL01\\SQL01"    # optional: expected @@SERVERNAME, catches wrong aliases
+    folder = "Sales"                   # optional: SSISDB folder when --folder is not given and you have
+                                       # not deployed this project here before
 
     [environments.prod]
     server = "prodsql01\\SQL01"
@@ -36,6 +38,7 @@ class Environment:
     confirm: bool = False
     sql_user: str | None = None
     trust_server_certificate: bool = False
+    folder: str | None = None
 
 
 def user_config() -> Path:
@@ -62,7 +65,7 @@ def load_environment(name: str, config: Path | None = None) -> Environment:
                        require_git_committed=e.get("require_git_committed", False) or e.get("require_git_pushed", False),
                        require_git_pushed=e.get("require_git_pushed", False),
                        confirm=e.get("confirm", False), sql_user=e.get("sql_user"),
-                       trust_server_certificate=e.get("trust_server_certificate", False))
+                       trust_server_certificate=e.get("trust_server_certificate", False), folder=e.get("folder"))
 
 
 def git_uncommitted(paths: list[Path]) -> list[str]:

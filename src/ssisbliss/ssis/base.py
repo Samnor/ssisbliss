@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 FILE = ".ssis-base.json"   # legacy location, read only
@@ -111,11 +112,24 @@ def record(directory: Path, key: str, lsn: int, packages: dict[str, str], state:
     data["repository"] = repository_id(directory)
     target = data.setdefault("targets", {}).setdefault(key, {"packages": {}})
     target["lsn"] = lsn
+    target["at"] = datetime.now(timezone.utc).isoformat()
     for name, digest in packages.items():
         target["packages"][name] = {"sha256": digest, "lsn": lsn}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     return path
+
+
+def folders(directory: Path, server: str, project: str, state: Path | None = None) -> dict[str, str]:
+    """Catalog folders you deployed or pulled `project` to on `server` from this repository, each with when
+    (empty for records older than that); what --folder defaults to."""
+    found: dict[str, str] = {}
+    head, tail = f"{server}/".lower(), f"/{project}".lower()
+    for identity in reversed(identities(directory)):
+        for key, target in _read(_path_for(identity, state)).get("targets", {}).items():
+            if key.lower().startswith(head) and key.lower().endswith(tail) and len(key) > len(head) + len(tail):
+                found[key[len(head):-len(tail)]] = target.get("at", "")
+    return found
 
 
 def forget(directory: Path, key: str, names: list[str], state: Path | None = None) -> None:

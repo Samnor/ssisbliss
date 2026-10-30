@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `--folder` and `--project` may be left out, unlike Visual Studio's deploy wizard, which asks every
+  time: the project is the `.dtproj`'s name, and the folder is where you last deployed or pulled that
+  project on that server, else the environment's `folder` in `ssisbliss.toml`. The output says which
+  ones were chosen and why (`target_from`). The server is still always named.
+
 ## 0.1.0 (2026-10-30)
 
 First release.

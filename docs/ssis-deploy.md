@@ -79,6 +79,7 @@ added to the SSIS repository:
 [environments.dev]
 server = "devsql01\\SQL01"
 server_name = "DEVSQL01\\SQL01"      # expected @@SERVERNAME; a wrong alias is refused
+folder = "STAGE"                      # optional: the SSISDB folder when --folder is not given
 
 [environments.stage]
 server = "stagesql01\\SQL01"
@@ -91,6 +92,14 @@ require_git_committed = true          # only packages committed and unmodified i
 require_git_pushed = true             # ... whose last commit is on a remote branch (pushed)
 confirm = true                        # apply also needs --confirm-env prod
 ```
+
+**Folder and project.** Visual Studio's deploy wizard asks for the server and the SSISDB path every
+time and remembers neither. ssisbliss needs the environment every time, but `--project` and
+`--folder` may be left out: the project is the name of the `.dtproj` next to the packages (or in a
+folder above them), and the folder is where you last deployed or pulled that project on that server
+from this repository, else the environment's `folder` in `ssisbliss.toml`. When neither exists,
+the command asks for `--folder`. Every output then starts with `target_from`, saying which folder and
+project were chosen and why; the plan's `target` shows them too.
 
 ## Working on PR branches
 

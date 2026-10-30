@@ -6,7 +6,10 @@ description: SSIS packages (.dtsx) and SQL Server SSIS catalogs (SSISDB) with th
 # ssisbliss
 
 Every command prints one JSON document. Environments (dev, stage, prod) come from `ssisbliss.toml`:
-pass `--env NAME` plus `--folder` and `--project` (catalog folder and project). Nothing changes
+pass `--env NAME` plus `--folder` and `--project` (catalog folder and project). When the developer
+did not say which folder or project, leave them out: ssisbliss takes the project from the `.dtproj`
+and the folder from their last deploy, and says so in `target_from`; tell the developer which
+target it chose. Nothing changes
 on a server without `--apply` and the `plan_id` of a plan you just made.
 
 ## Rules (never break these)

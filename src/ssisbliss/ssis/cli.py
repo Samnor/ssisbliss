@@ -23,7 +23,14 @@ from .ispac import Ispac
 from .outline import outline
 
 
+# Where a --folder / --project that was not given came from; shown in the command's output.
+_target_from: dict[str, str] = {}
+
+
 def emit(doc: dict, code: int = EXIT_OK) -> int:
+    if _target_from:
+        first = {k: doc[k] for k in ("error", "refused_because") if k in doc}
+        doc = {**first, "target_from": dict(_target_from), **doc}
     json.dump(doc, sys.stdout, indent=2, default=str)
     sys.stdout.write("\n")
     return code
@@ -44,6 +51,51 @@ def _catalog(env: Environment, a) -> SqlCatalog:
         return FakeCatalog.load(fake_location(env.server))  # type: ignore[return-value]
     return SqlCatalog(connection_string(env.server, a.sql_user or env.sql_user,
                                         a.trust_server_certificate or env.trust_server_certificate))
+
+
+def _dtproj(directory: Path) -> Path | None:
+    """The Visual Studio project in `directory` or the nearest folder above it, up to the repository root."""
+    d = directory.resolve()
+    for _ in range(4):
+        found = sorted(d.glob("*.dtproj"))
+        if len(found) > 1:
+            raise ValueError(f"several Visual Studio projects in {d} ({', '.join(f.name for f in found)}): pass --project")
+        if found or (d / ".git").exists() or d.parent == d:
+            return found[0] if found else None
+        d = d.parent
+    return None
+
+
+def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = None) -> None:
+    """Fill in --project and --folder when they were not given, the way the developer would answer Visual
+    Studio's deploy wizard: the project is the .dtproj's name; the folder is where you last deployed or
+    pulled that project on this server from this repository, else the environment's folder in
+    ssisbliss.toml. The server is never guessed. Each choice and its source is shown in the output."""
+    if not a.project:
+        dtproj = dtproj or _dtproj(directory)
+        if dtproj is None:
+            raise ValueError(f"give --project: no Visual Studio project (.dtproj) in {directory} or above it")
+        from .build import load_dtproj
+        a.project = load_dtproj(dtproj).name
+        _target_from["project"] = f"{a.project} (from {dtproj})"
+    if not a.folder:
+        server = cat.server_info().server_name
+        mine = base.folders(directory, server, a.project)
+        if mine:
+            latest = max(mine, key=lambda f: mine[f])
+            if len(mine) > 1 and list(mine.values()).count(mine[latest]) > 1:
+                raise ValueError(f"give --folder: you have deployed {a.project} on {server} to several folders "
+                                 f"({', '.join(sorted(mine))})")
+            a.folder = latest
+            others = f"; also deployed to {', '.join(sorted(f for f in mine if f != latest))}" if len(mine) > 1 else ""
+            _target_from["folder"] = f"{a.folder} (where you last deployed or pulled {a.project} on {server}{others})"
+        elif env.folder:
+            a.folder = env.folder
+            _target_from["folder"] = f"{a.folder} (folder of environment {env.name} in ssisbliss.toml)"
+        else:
+            raise ValueError(f"give --folder: you have not deployed or pulled {a.project} on {server} from this "
+                             f"repository, and {'environment ' + env.name if env.name else '--server'} has no folder "
+                             f"in ssisbliss.toml")
 
 
 def _agent(env: Environment, a):
@@ -209,6 +261,7 @@ def cmd_status(a) -> int:
     """Each deployed package against your base record and your local file; deploys since your version."""
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path(a.dir))
     info = cat.server_info()
     p = cat.project(a.folder, a.project)
     if p is None:
@@ -298,6 +351,7 @@ def cmd_install_skill(a) -> int:
 def cmd_versions(a) -> int:
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path.cwd())
     p = cat.project(a.folder, a.project)
     if p is None:
         return emit({"error": f"project {a.folder}/{a.project} not found"}, EXIT_REFUSED)
@@ -307,6 +361,7 @@ def cmd_versions(a) -> int:
 def cmd_pull(a) -> int:
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path(a.out))
     info = cat.server_info()
     p = cat.project(a.folder, a.project)
     if p is None:
@@ -373,6 +428,7 @@ def cmd_deploy_packages(a) -> int:
     env = _env(a)
     cat = _catalog(env, a)
     files = [Path(f) for f in a.files]
+    _target(a, env, cat, files[0].parent)
     if a.from_ref:
         contents, ref_info = _from_ref(files, a.from_ref)
     else:
@@ -484,6 +540,8 @@ def cmd_deploy_project(a) -> int:
         source = Ispac(data)
     else:
         source = Ispac.from_file(a.ispac)
+    _target(a, env, cat, Path(a.dtproj).parent if a.dtproj else _ispac_base_dirs(Path(a.ispac))[0],
+            Path(a.dtproj) if a.dtproj else None)
     if a.all and a.only:
         raise ValueError("give --only PACKAGE... or --all, not both")
     if a.all:
@@ -532,6 +590,7 @@ def cmd_deploy_project(a) -> int:
 def cmd_remove_packages(a) -> int:
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path(a.dir))
     info = cat.server_info()
     key = base.target_key(info.server_name, a.folder, a.project)
     folder = Path(a.dir)
@@ -567,6 +626,7 @@ def cmd_activity(a) -> int:
     """Who else is working on these packages, or on packages linked to them."""
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path(a.dir))
     p = cat.project(a.folder, a.project)
     server = Ispac(cat.get_project(a.folder, a.project)) if p else None
     act = _activity(Path(a.dir), cat, env, a, a.folder, a.project, server, fetch=a.fetch, days=a.days)
@@ -596,6 +656,7 @@ def cmd_strays(a) -> int:
     from .activity import strays
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path(a.dir))
     if cat.project(a.folder, a.project) is None:
         return emit({"error": f"project {a.folder}/{a.project} not found"}, EXIT_REFUSED)
     server = Ispac(cat.get_project(a.folder, a.project))
@@ -801,6 +862,7 @@ def cmd_sql_diff(a) -> int:
 def cmd_rollback(a) -> int:
     env = _env(a)
     cat = _catalog(env, a)
+    _target(a, env, cat, Path.cwd())
     plan = plan_rollback(cat, a.folder, a.project, a.to_lsn, allow_running=a.allow_running,
                          undo_others=a.undo_others)
     _env_checks(plan, env, [])
@@ -810,7 +872,8 @@ def cmd_rollback(a) -> int:
 # --------------------------------------------------------------------- main --
 
 RECIPES = """\
-Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT):
+Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT; folder and project may be left
+out: the project is the .dtproj's name, the folder your last one for it, both shown in target_from):
   Deploy Package (Load_B)      deploy-project T --dtproj X.dtproj --only Load_B
   Rebuild + Deploy Package     the same: --dtproj builds the project first
   Deploy Package, new package  add --allow-new          (or: deploy-packages T --allow-new X/Load_C.dtsx)
@@ -851,15 +914,19 @@ def parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def target(s, project=True, required=True):
+        """required: the command needs a folder and project; when not given they default (see _target)."""
         g = s.add_argument_group("target")
         g.add_argument("--env", help="environment name from ssisbliss.toml")
         g.add_argument("--server", help="ODBC server, e.g. host\\instance or host,port")
         g.add_argument("--config", help="path to ssisbliss.toml")
         g.add_argument("--sql-user", help="SQL login; password from SSISBLISS_SQL_PASSWORD")
         g.add_argument("--trust-server-certificate", action="store_true")
-        g.add_argument("--folder", required=required)
+        g.add_argument("--folder", help="SSISDB folder (default: where you last deployed or pulled this project on "
+                                        "this server, else the environment's folder in ssisbliss.toml)"
+                       if required else None)
         if project:
-            g.add_argument("--project", required=required)
+            g.add_argument("--project", help="SSISDB project (default: the name of the .dtproj here or above)"
+                           if required else None)
 
     def applying(s):
         g = s.add_argument_group("apply")
@@ -1034,6 +1101,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     a = parser().parse_args(argv)
+    _target_from.clear()
     try:
         return a.fn(a)
     except (ValueError, RuntimeError) as e:

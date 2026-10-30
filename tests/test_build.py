@@ -229,3 +229,39 @@ def test_rebuild_then_deploy_package_over_a_visual_studio_deployed_project(tmp_p
     assert code == 0, plan
     code, out = _cli(monkeypatch, capsys, cat, *args, "--apply", "--plan-id", plan["plan_id"])
     assert out["status"] == "verified", out
+
+
+def test_folder_and_project_default_like_the_visual_studio_wizard_answers(tmp_path, monkeypatch, capsys):
+    # Visual Studio asks for the server and SSISDB path on every deploy and remembers neither; ssisbliss takes the
+    # project from the .dtproj, and the folder from your last deploy or pull of it, else ssisbliss.toml.
+    proj = _project_copy(tmp_path)
+    cat = _server_with(proj)
+    cat.add_project("OTHER", "Corpus", build(proj / "Corpus.dtproj")[0])
+    deploy = ["deploy-project", "--env", "dev", "--dtproj", str(proj / "Corpus.dtproj"), "--only", "Load_B"]
+    (tmp_path / "ssisbliss.toml").write_text('[environments.dev]\nserver = "x"\n')
+    monkeypatch.chdir(tmp_path)
+    code, out = _cli(monkeypatch, capsys, cat, *deploy)
+    assert code == 2 and out["error"].startswith("give --folder") and "Corpus.dtproj" in out["target_from"]["project"]
+
+    (tmp_path / "ssisbliss.toml").write_text('[environments.dev]\nserver = "x"\nfolder = "CORPUS"\n')
+    _edit(proj / "Load_B.dtsx", "my change")
+    code, plan = _cli(monkeypatch, capsys, cat, *deploy)
+    assert (plan["target"]["folder"], plan["target"]["project"]) == ("CORPUS", "Corpus"), plan
+    assert "ssisbliss.toml" in plan["target_from"]["folder"]
+
+    # Your own pull or deploy wins over the file: that is the folder you work in.
+    assert _cli(monkeypatch, capsys, cat, "pull", "--env", "dev", "--folder", "OTHER", "--out", str(proj),
+                "--packages", "Load_A.dtsx")[0] == 0
+    code, out = _cli(monkeypatch, capsys, cat, "status", "--env", "dev", "--dir", str(proj))
+    assert code == 0 and out["target_from"]["folder"].startswith("OTHER (where you last deployed or pulled Corpus")
+    mine = [*deploy, "--folder", "CORPUS", "--overwrite", "Load_B.dtsx"]
+    code, plan = _cli(monkeypatch, capsys, cat, *mine)
+    code, out = _cli(monkeypatch, capsys, cat, *mine, "--apply", "--plan-id", plan["plan_id"],
+                     "--backup-dir", str(tmp_path / "bk"))
+    assert out["status"] == "verified", out
+    code, plan = _cli(monkeypatch, capsys, cat, *deploy)
+    assert plan["target"]["folder"] == "CORPUS" and "also deployed to OTHER" in plan["target_from"]["folder"]
+
+    # Given flags are used as they are, with nothing to explain.
+    code, plan = _cli(monkeypatch, capsys, cat, *deploy, "--folder", "OTHER", "--project", "Corpus")
+    assert "target_from" not in plan
