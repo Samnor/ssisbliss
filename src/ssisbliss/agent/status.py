@@ -122,7 +122,7 @@ def _success_path(steps: list[dict]) -> list[int] | None:
     return path
 
 
-def _skipped_starts(steps: list[dict]) -> list[dict]:
+def skipped_starts(steps: list[dict]) -> list[dict]:
     """Steps that start another job but never run when the job succeeds, with the step that ends the run."""
     path = _success_path(steps)
     if path is None:
@@ -166,7 +166,7 @@ def job_views(jobs: list[dict], steps: list[dict]) -> list[dict]:
         starts = sorted({t for s in v["steps"] for t in s.get("starts", [])})
         if starts:
             v["starts"] = starts
-        skipped = _skipped_starts(by_job.get(j["name"], []))
+        skipped = skipped_starts(by_job.get(j["name"], []))
         if skipped:
             v["skipped_starts"] = skipped   # kept in --brief: it explains a chain that stops without a failure
         if j["name"] in started_by:
@@ -248,10 +248,13 @@ def _chain_status(root: dict, links: list[dict], missing: list[str]) -> dict:
                       f"than usual); stopping it is the server operator's call")
     elif verdict.startswith("stopped after"):
         by_name = {v["name"]: v for v in links}
-        reason = next((sk["reason"] for sk in by_name[done[-1]["job"]].get("skipped_starts", [])
-                       if nxt["job"] in sk["would_start"]), None)
-        if reason:
-            out["why"] = f"{done[-1]['job']}: {reason}; nothing failed"
+        sk = next((sk for sk in by_name[done[-1]["job"]].get("skipped_starts", [])
+                   if nxt["job"] in sk["would_start"]), None)
+        if sk:
+            out["why"] = (f"{done[-1]['job']}: {sk['reason']}; nothing failed. This is the whole cause, so there is no "
+                          f"error, execution or deploy to look up: the fix is to change the job's on-success actions "
+                          f"in SQL Server Agent so that step {sk['step_id']} ({sk['name']}) runs. history lists only "
+                          f"the steps that ran")
     if root.get("next_run"):
         out["next_run"] = root["next_run"]
     if missing:

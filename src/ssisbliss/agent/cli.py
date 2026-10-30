@@ -12,11 +12,12 @@ from pathlib import Path
 
 from ..ssis.config import Environment, load_environment
 from .source import SqlAgent
-from .status import chains, job_views, runs
+from .status import chains, job_views, runs, skipped_starts
 
 # In --help of jobs, chain, history and executions: where an agent looks just before its first query.
 TROUBLESHOOT = ("Why did a job or nightly load fail? Start with `ssisbliss chain --env ENV`: it says where the chain "
-                "is (completed, running: X, failed at X, stopped after X), even when nothing failed. Then "
+                "is (completed, running: X, failed at X, stopped after X), even when nothing failed; a `why` there is "
+                "the answer. Otherwise "
                 "`ssisbliss history --env ENV \"JOB\" --runs 1` gives the failed step and its execution id (an earlier "
                 "night: --runs 5), and `ssisbliss executions --env ENV --id N` gives the failing task, its error and "
                 "what it runs. --failed lists only failures, of any night: it misses a job still running or a step "
@@ -67,6 +68,11 @@ def cmd_chain(a) -> int:
     found = chains(job_views(src.jobs(), src.steps()))
     if a.name:
         found = [c for c in found if any(a.name.lower() in link["job"].lower() for link in c["links"])]
+    for c in found:
+        failed = next((link["job"] for link in c["links"] if link["state"] in ("failed", "canceled")), None)
+        if failed and not c["verdict"].startswith("running"):
+            target = f"--env {a.env}" if a.env else f'--server "{a.server}"'
+            c["next"] = f'ssisbliss history {target} "{failed}" --runs 1'
     return emit({"server": src.server_name(), "chains": found})
 
 
@@ -80,7 +86,11 @@ def cmd_history(a) -> int:
             return emit({"error": f"no job named '{a.job}'" + (f"; did you mean: {', '.join(close)}" if close else "")}, 2)
     if a.failed:
         found = [r for r in found if r.get("outcome") != "succeeded"]
-    return emit({"server": src.server_name(), "job": a.job, "runs": found})
+    doc: dict = {"server": src.server_name(), "job": a.job, "runs": found}
+    skipped = skipped_starts([s for s in src.steps() if s["job"] == a.job])
+    if skipped:
+        doc["skipped_starts"] = skipped   # runs list only the steps that ran: a skipped step would look absent
+    return emit(doc)
 
 
 def add_commands(sub) -> None:
