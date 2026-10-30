@@ -14,6 +14,18 @@ from ..ssis.config import Environment, load_environment
 from .source import SqlAgent
 from .status import chains, job_views, runs
 
+# In --help of jobs, chain, history and executions: where an agent looks just before its first query.
+TROUBLESHOOT = ("Why did a job or nightly load fail? Start with `ssisbliss chain --env ENV`: it says where the chain "
+                "is (completed, running: X, failed at X, stopped after X), even when nothing failed. Then "
+                "`ssisbliss history --env ENV \"JOB\" --runs 1` gives the failed step and its execution id (an earlier "
+                "night: --runs 5), and `ssisbliss executions --env ENV --id N` gives the failing task, its error and "
+                "what it runs. --failed lists only failures, of any night: it misses a job still running or a step "
+                "that never started, so an empty list does not mean the load is fine.")
+
+
+def troubleshooting_help(what: str) -> str:
+    return f"{what[0].upper()}{what[1:]}. {TROUBLESHOOT}"
+
 
 def emit(doc: dict, code: int = 0) -> int:
     json.dump(doc, sys.stdout, indent=2, default=str)
@@ -82,7 +94,8 @@ def add_commands(sub) -> None:
         g.add_argument("--sql-user", help="SQL login; password from SSISBLISS_SQL_PASSWORD")
         g.add_argument("--trust-server-certificate", action="store_true")
 
-    s = sub.add_parser("jobs", help="jobs with state, last and next run, what each step runs, and links")
+    what = "jobs with state, last and next run, what each step runs, and links"
+    s = sub.add_parser("jobs", help=what, description=troubleshooting_help(what))
     target(s)
     s.add_argument("--name", help="only jobs whose name contains this")
     s.add_argument("--failed", action="store_true", help="only jobs whose last run failed or was canceled")
@@ -90,12 +103,14 @@ def add_commands(sub) -> None:
     s.add_argument("--brief", action="store_true", help="leave out the steps")
     s.set_defaults(fn=cmd_jobs)
 
-    s = sub.add_parser("chain", help="job chains linked by sp_start_job and where the current run is")
+    what = "job chains linked by sp_start_job and where the current run is"
+    s = sub.add_parser("chain", help=what, description=troubleshooting_help(what))
     target(s)
     s.add_argument("--name", help="only chains with a job whose name contains this")
     s.set_defaults(fn=cmd_chain)
 
-    s = sub.add_parser("history", help="recent runs of a job with step outcomes and SSIS execution ids")
+    what = "recent runs of a job with step outcomes and SSIS execution ids"
+    s = sub.add_parser("history", help=what, description=troubleshooting_help(what))
     target(s)
     s.add_argument("job", help="exact job name")
     s.add_argument("--runs", type=int, default=5)

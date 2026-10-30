@@ -1,6 +1,8 @@
 """SQL Agent views: step parsing, chain status and run history (msdb rows as the lab returns them)."""
 import json
 
+import pytest
+
 from ssisbliss.agent import cli
 from ssisbliss.agent.status import (
     chains,
@@ -171,3 +173,13 @@ def test_history_names_a_package_the_catalog_cannot_find():
     step = runs(rows)[0]["steps"][0]
     assert "Load_Prices.dtsx" in step["hint"] and "renamed" in step["hint"]
     assert step["next"] == 'ssisbliss inspect --folder "BRONZE_API" --project "IMPORTAPI"'
+
+
+def test_troubleshooting_help_points_at_chain_first(capsys):
+    from ssisbliss.ssis.cli import parser
+    for command in ("jobs", "chain", "history", "executions"):
+        with pytest.raises(SystemExit):
+            parser().parse_args([command, "--help"])
+        text = " ".join(capsys.readouterr().out.split())
+        assert "Start with `ssisbliss chain --env ENV`" in text
+        assert "an empty list does not mean the load is fine" in text

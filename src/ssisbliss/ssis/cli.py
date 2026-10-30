@@ -880,8 +880,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--package")
     s.set_defaults(fn=cmd_outline)
 
-    s = sub.add_parser("executions", help="recent executions; for failures: the failing task, its messages and "
-                                          "what it runs")
+    from ..agent.cli import troubleshooting_help
+    what = "recent executions; for failures: the failing task, its messages and what it runs"
+    s = sub.add_parser("executions", help=what, description=troubleshooting_help(what))
     target(s, required=False)
     s.add_argument("--package")
     s.add_argument("--failed", action="store_true", help="only failed or unexpectedly ended executions")
