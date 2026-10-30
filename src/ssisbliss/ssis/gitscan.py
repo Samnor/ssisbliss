@@ -174,6 +174,67 @@ def _packages_at(root: Path, ref: str, prefix: str) -> dict[str, tuple[str, str]
     return found
 
 
+def _history(root: Path, default: str, prefix: str) -> dict[str, tuple[list[str], list[str], dict]] | None:
+    """Every commit on a remote branch that the default branch lacks, read by one `git log`: commit ->
+    (parents, [author, email, date], {path: (old, new, status)}). None when git cannot tell, or when the
+    project folder's name would mean something else in the pathspec the per-branch way uses."""
+    if set(prefix) & set("*?[\\"):
+        return None
+    out = _git(root, "log", "--remotes", f"^{default}", "--no-abbrev", "--no-renames", "--raw",
+               "--format=%x01%H%x00%P%x00%an%x00%ae%x00%cI")
+    if out is None:
+        return None
+    history: dict[str, tuple[list[str], list[str], dict]] = {}
+    paths: dict = {}
+    for line in out.split("\n"):
+        if line.startswith("\x01"):
+            sha, parents, *who = line[1:].split("\x00")
+            paths = {}
+            history[sha] = (parents.split(), who, paths)
+        elif line.startswith(":"):
+            meta, path = line.split("\t", 1)
+            old_mode, new_mode, old, new, status = meta[1:].split(" ")
+            paths[path] = (f"{old_mode} {old}", f"{new_mode} {new}", status)
+    return history
+
+
+def _linear_changes(history: dict, sha: str, prefix: str) -> list[tuple[str, str, list[list[str]]]] | None:
+    """What _branch_changes says, worked out from _history. None when that takes git after all: a merge on
+    the branch (git then picks which side's commits count per path), a branch sharing no history with the
+    default branch, or a file name git quotes."""
+    touched: dict[str, list] = {}
+    at = sha
+    while at in history:
+        parents, who, paths = history[at]
+        if len(parents) != 1 or any(p.startswith('"') for p in paths):
+            return None
+        for path, change in paths.items():
+            folder, _, name = path.rpartition("/")
+            if folder == prefix and name.endswith(".dtsx"):
+                touched.setdefault(path, []).append((at, who, change))
+        at = parents[0]
+    out = []
+    for path, commits in sorted(touched.items()):                  # newest commit first
+        if commits[-1][2][0] != commits[0][2][1]:                  # back where it started: no change on the branch
+            out.append(("D" if commits[0][2][2] == "D" else "M", path, [[c, *who] for c, who, _ in commits]))
+    return out
+
+
+def _branch_changes(root: Path, default: str, sha: str, pathspec: list[str]) -> list[tuple[str, str, list[list[str]]]] | None:
+    """(status, path, commits newest first, each [commit, author, email, date]) of every package the branch
+    changes; None when it shares no history with the default branch."""
+    base = _git(root, "merge-base", default, sha)
+    if not base:
+        return None
+    changed = _git(root, "diff", "--name-status", "--no-renames", base, sha, "--", *pathspec) or ""
+    out = []
+    for row in changed.splitlines():
+        status, path = row.split("\t", 1)
+        log = _git(root, "log", f"{base}..{sha}", "--format=%H%x00%an%x00%ae%x00%cI", "--", path) or ""
+        out.append((status, path, [c.split("\x00") for c in log.splitlines() if c]))
+    return out
+
+
 def scan(directory: Path, fetch: bool = False) -> GitScan | None:
     """None when the folder is not in a git repository."""
     directory = directory.resolve()
@@ -199,20 +260,19 @@ def scan(directory: Path, fetch: bool = False) -> GitScan | None:
     default_sha = _git(root, "rev-parse", s.default)
     refs = _git(root, "for-each-ref", "refs/remotes", "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)") or ""
     pathspec = [f":(glob){prefix}/*.dtsx" if prefix else ":(glob)*.dtsx"]
+    history = _history(root, s.default, prefix)
     for line in refs.splitlines():
         name, sha, date = line.split("\x00")
         if name.endswith("/HEAD") or name == s.default or sha == default_sha or "/" not in name:
             continue
-        base = _git(root, "merge-base", s.default, sha)
-        if not base:
+        changes = _linear_changes(history, sha, prefix) if history is not None else None
+        if changes is None:
+            changes = _branch_changes(root, s.default, sha, pathspec)
+        if changes is None:
             continue
-        changed = _git(root, "diff", "--name-status", "--no-renames", base, sha, "--", *pathspec) or ""
         b = Branch(name=name, sha=sha, date=date, yours=name == upstream)
-        for row in changed.splitlines():
-            status, path = row.split("\t", 1)
+        for status, path, commits in changes:
             pkg = path.rsplit("/", 1)[-1]
-            log = _git(root, "log", f"{base}..{sha}", "--format=%H%x00%an%x00%ae%x00%cI", "--", path) or ""
-            commits = [c.split("\x00") for c in log.splitlines() if c]
             if not commits:
                 continue
             last = commits[0]

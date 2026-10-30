@@ -183,6 +183,72 @@ def test_strays_refuses_a_folder_that_is_not_the_project(tmp_path):
     assert code == 2 and "--dir STAGE" in out["error"]
 
 
+def _branches(s):
+    return [(b.name, b.sha, b.yours, {k: vars(c) for k, c in b.changes.items()}) for b in s.branches]
+
+
+def test_scan_reads_linear_branches_with_one_log_and_reports_what_the_per_branch_way_does(tmp_path, monkeypatch):
+    from ssisbliss.ssis import gitscan
+    w = sql_world(tmp_path / "w")
+    pkg = lambda n, r: task_package(n, revision=r, sql=[f"SELECT {r}"])   # noqa: E731
+    w.colleague_branch("pr/plain", "Bob", {"Stage_Customer.dtsx": pkg("Stage_Customer.dtsx", 7)})
+    clone = w.root / "clone"
+    subprocess.run(["git", "clone", "-q", str(w.root / "origin.git"), str(clone)], check=True)
+    g = lambda *a: subprocess.run(["git", *a], cwd=clone, check=True, capture_output=True)   # noqa: E731
+    g("config", "user.email", "dev@example.com")
+    g("config", "user.name", "Dev")
+
+    def commit(message, **files):
+        for name, data in files.items():
+            p = clone / "STAGE" / name.replace("__", ".")
+            p.write_bytes(data) if data is not None else p.unlink()
+        g("add", "-A")
+        g("commit", "-q", "-m", message)
+
+    # several commits; a package added and removed again, one changed and put back, one deleted, one only outside
+    g("checkout", "-q", "-b", "pr/mixed", "origin/main")
+    original = (clone / "STAGE" / "Stage_Product.dtsx").read_bytes()
+    commit("a", Stage_Product__dtsx=pkg("Stage_Product.dtsx", 2), Temp__dtsx=pkg("Temp.dtsx", 1),
+           Stage_SalesOrder__dtsx=pkg("Stage_SalesOrder.dtsx", 2))
+    commit("b", Stage_Product__dtsx=original, Temp__dtsx=None, Stage_SalesOrder__dtsx=pkg("Stage_SalesOrder.dtsx", 3))
+    commit("c", Main__dtsx=None)
+    (clone / "STAGE" / "sub").mkdir()
+    (clone / "STAGE" / "sub" / "Deep.dtsx").write_bytes(pkg("Deep.dtsx", 1))
+    (clone / "STAGE" / "notes.txt").write_text("x")
+    commit("d")
+    g("push", "-q", "origin", "pr/mixed")
+    # a merge inside the branch: answered the per-branch way
+    g("checkout", "-q", "-b", "pr/side", "origin/main")
+    commit("side", Stage_Customer__dtsx=pkg("Stage_Customer.dtsx", 8))
+    g("checkout", "-q", "-b", "pr/merged", "origin/main")
+    commit("own", Stage_Product__dtsx=pkg("Stage_Product.dtsx", 9))
+    g("merge", "-q", "--no-edit", "pr/side")
+    g("push", "-q", "origin", "pr/merged")
+    # a branch already merged into main changes nothing
+    g("checkout", "-q", "-B", "pr/old", "origin/main")
+    g("push", "-q", "origin", "pr/old")
+    subprocess.run(["git", "fetch", "-q", "origin"], cwd=w.work, check=True)
+
+    calls = []
+    real = gitscan._git_bytes
+    monkeypatch.setattr(gitscan, "_git_bytes", lambda cwd, *a: calls.append(a[0]) or real(cwd, *a))
+    fast = gitscan.scan(w.work / "STAGE")
+    assert calls.count("merge-base") == 1 and calls.count("diff") == 1      # only the branch with a merge
+    assert calls.count("log") == 3             # the one for all branches, plus that branch's two packages
+    assert _branches(fast) == _branches(_slow_scan(monkeypatch, gitscan, w))
+    mixed = next(b for b in fast.branches if b.name == "origin/pr/mixed")
+    assert sorted(mixed.changes) == ["main.dtsx", "stage_salesorder.dtsx"]
+    assert mixed.changes["main.dtsx"].deleted and mixed.changes["main.dtsx"].path == ""
+    assert mixed.changes["stage_salesorder.dtsx"].commits == 2
+    assert "origin/pr/old" not in [b.name for b in fast.branches]
+
+
+def _slow_scan(monkeypatch, gitscan, w):
+    with monkeypatch.context() as m:
+        m.setattr(gitscan, "_history", lambda *a: None)
+        return gitscan.scan(w.work / "STAGE")
+
+
 def test_blobs_reads_files_at_revisions_through_one_git_process(tmp_path, monkeypatch):
     from ssisbliss.ssis import gitscan
     from ssisbliss.ssis.dtsx import package_sha256
