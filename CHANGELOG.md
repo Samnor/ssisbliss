@@ -6,6 +6,12 @@
   time: the project is the `.dtproj`'s name, and the folder is where you last deployed or pulled that
   project on that server, else the environment's `folder` in `ssisbliss.toml`. The output says which
   ones were chosen and why (`target_from`). The server is still always named.
+- `executions` explains errors SSIS logs without a cause (`explained`): the real error inside
+  `0xC0202009`, VS_NEEDSNEWMETADATA, truncation, the 64-bit Excel driver, logins and permissions
+  with the run's account, mapped drives, no environment in the job step, script tasks built for
+  another SQL Server, deadlocks, timeouts and more, each with the usual fix.
+- `lint --env` compares every data flow source and destination with the server's tables (SSB401-405):
+  a dropped or retyped column, a column that truncates, a new required column in the destination.
 
 ## 0.1.0 (2026-10-30)
 

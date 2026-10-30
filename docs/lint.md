@@ -52,6 +52,12 @@ assignment per line, `AND`/`OR` conditions on their own lines, indented `BEGIN .
 | SSB205 insert-columns | warn | `INSERT` without a column list |
 | SSB206 database-name | info | a hard-coded database in a three-part name |
 | SSB210 server-parse | error | with `--env ENV`: the server's own parser (`SET PARSEONLY`) rejects the SQL |
+| SSB401 table-missing | error | with `--env`: a data flow's source or destination table is not on the server |
+| SSB402 column-missing | error | with `--env`: a data flow column is no longer in the table or query (VS_NEEDSNEWMETADATA) |
+| SSB403 column-type | error | with `--env`: a column's type differs between the package and the server |
+| SSB404 column-size | warn / error | with `--env`: a column's length differs; an error when values would be truncated |
+| SSB405 new-required-column | error | with `--env`: the destination table has a NOT NULL column without a default that the package does not fill |
+| SSB409 columns-not-checked | info | with `--env`: a source or destination could not be compared (table from a variable, database on another server) |
 | SSB301 not-formatted | warn | the SQL is not laid out the `format` way |
 | SSB302 cannot-format | info | the SQL could not be laid out automatically |
 | SSB303 long-line | info | a line longer than `--max-line` (120) after layout |
@@ -62,6 +68,13 @@ and column inside that statement, a message and a hint.
 
 - `--env dev` parses every statement with that environment's SQL Server (`SET PARSEONLY`: nothing
   runs; `?` markers are declared as variables). The server decides what is valid T-SQL.
+- `--env dev` also compares every OLE DB and ADO.NET source and destination in the data flows with
+  the tables on that server: the columns the package was built with against `sys.columns`, and a
+  query source against the result the server describes for it (`sp_describe_first_result_set`;
+  nothing runs). A table changed after the package was built is what fails at night with
+  VS_NEEDSNEWMETADATA, a truncation error or a failing insert; Visual Studio only notices when
+  someone opens the data flow. The database comes from the connection manager (the package's, or
+  the project's `.conmgr` next to it); databases that are not on that server are skipped (SSB409).
 - `--fail-on error|warn|info|never` sets when the exit code is 2 (default `error`).
 - `--update-baseline` accepts today's findings, kept per user outside the repository; later runs
   report only new findings (and how many were baselined), so an old project can adopt the linter

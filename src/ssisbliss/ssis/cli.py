@@ -98,6 +98,14 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
                              f"in ssisbliss.toml")
 
 
+def _server_connection(env: Environment, a):
+    """A plain connection to the environment's SQL Server (lint --env reads tables and parses SQL with it)."""
+    raw = getattr(_catalog(env, a), "conn", None)
+    if raw is None:
+        raise ValueError(f"--env {env.name or env.server}: checking against the server needs a real SQL Server")
+    return raw
+
+
 def _agent(env: Environment, a):
     """The environment's SQL Agent (jobs that run packages, accounts they run as), or None."""
     try:
@@ -727,21 +735,24 @@ def cmd_lint(a) -> int:
     findings = []
     for f in files:
         findings += [x for x in lint_package(str(f), f.read_bytes(), a.max_line) if x.rule not in ignore]
-    if a.env and "SSB210" not in ignore:
+    if a.env:
+        from .columns import ServerSchema, check
+        from .lint import Finding
         env = _env(a)
-        conn = _catalog(env, a)
-        raw = getattr(conn, "conn", None)
-        if raw is None:
-            raise ValueError(f"--env {env.name}: server parsing needs a real server connection")
+        raw = _server_connection(env, a)
+        label = env.name or env.server
+        schema = ServerSchema(raw)
         for f in files:
-            for s in sites(f.read_bytes()):
-                if s.dynamic:
-                    continue
-                err = server_parse(raw, s.sql)
-                if err:
-                    from .lint import Finding
-                    findings.append(Finding("SSB210", "error", str(f), s.task, s.path, 1, 1,
-                                            f"{env.name or env.server} rejects it: {err}", "fix the SQL"))
+            data = f.read_bytes()
+            if "SSB210" not in ignore:
+                for s in sites(data):
+                    if s.dynamic:
+                        continue
+                    err = server_parse(raw, s.sql)
+                    if err:
+                        findings.append(Finding("SSB210", "error", str(f), s.task, s.path, 1, 1,
+                                                f"{label} rejects it: {err}", "fix the SQL"))
+            findings += [x for x in check(str(f), data, schema, label, f.parent) if x.rule not in ignore]
     baselined = 0
     bpath = _baseline_path(files[0].parent if files else Path("."))
     if a.update_baseline:
@@ -993,8 +1004,9 @@ def parser() -> argparse.ArgumentParser:
                    help="accept today's findings: later runs report only new ones (kept per user, not in the repository)")
     s.add_argument("--no-baseline", action="store_true", help="report everything, including baselined findings")
     s.add_argument("--rules", action="store_true", help="list the rules")
-    g = s.add_argument_group("server parsing (optional)")
-    g.add_argument("--env", help="also parse every statement with this environment's SQL Server (SET PARSEONLY)")
+    g = s.add_argument_group("against a server (optional)")
+    g.add_argument("--env", help="also check against this environment's SQL Server: parse every statement (SET "
+                                  "PARSEONLY) and compare data flow columns with its tables")
     g.add_argument("--server", help=argparse.SUPPRESS)
     g.add_argument("--config", help="path to ssisbliss.toml")
     g.add_argument("--sql-user", help="SQL login; password from SSISBLISS_SQL_PASSWORD")

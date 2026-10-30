@@ -102,6 +102,13 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 f"{d.get('seeded_statements')} seeded statements: {not d.get('server_rejected_seeded')}", raw)
     check("format-roundtrip", format_roundtrip)
 
+    def columns_server():
+        raw = py("columns-server.py")
+        d = first_json(raw)
+        return (bool(d.get("ok")), "lint --env data flow columns against real tables: changed table finds "
+                f"{sorted(f['rule'] for f in d.get('changed', []))}; unchanged finds {len(d.get('in_step', []))}", raw)
+    check("columns-server", columns_server)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

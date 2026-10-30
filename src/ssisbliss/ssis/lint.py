@@ -32,6 +32,13 @@ RULES = {
     "SSB205": ("insert-columns", "warn", "INSERT without a column list"),
     "SSB206": ("database-name", "info", "three-part name with a hard-coded database"),
     "SSB210": ("server-parse", "error", "the server's parser rejects this SQL"),
+    # data flow columns against the server's tables (lint --env)
+    "SSB401": ("table-missing", "error", "a data flow's table is not on the server"),
+    "SSB402": ("column-missing", "error", "a data flow column is not in the table any more (VS_NEEDSNEWMETADATA)"),
+    "SSB403": ("column-type", "error", "a data flow column has another type than the table's"),
+    "SSB404": ("column-size", "warn", "a data flow column's length differs from the table's (error when it truncates)"),
+    "SSB405": ("new-required-column", "error", "the destination table has a NOT NULL column the package does not fill"),
+    "SSB409": ("columns-not-checked", "info", "a data flow source or destination could not be compared with the server"),
     # readability in a pull request
     "SSB301": ("not-formatted", "warn", "SQL is not laid out the readable way (`ssisbliss format`)"),
     "SSB302": ("cannot-format", "info", "SQL could not be laid out automatically"),

@@ -7,6 +7,7 @@ import re
 from .catalog import Catalog
 from .dtsx import as_editable
 from .ispac import Ispac
+from .known_errors import explain
 from .outline import flatten, outline
 
 STATUS = {1: "created", 2: "running", 3: "canceled", 4: "failed", 5: "pending", 6: "ended_unexpectedly",
@@ -71,8 +72,9 @@ def _failure(catalog: Catalog, r: dict, outlines: dict, max_messages: int) -> di
         # "The task, 'X', failed." adds nothing when the real error is there too.
         real = [m for m in t["messages"] if not re.search(r"The task, '.*', failed\.$", m)]
         t["messages"] = real or t["messages"]
-        total = len(t["messages"])
-        t["messages"] = t["messages"][:max_messages]
+        every = t["messages"]
+        total = len(every)
+        t["messages"] = every[:max_messages]
         if total > max_messages:
             t["more_messages"] = total - max_messages
         found = _find_task(catalog, r, t["package"], t["path"], outlines)
@@ -96,9 +98,15 @@ def _failure(catalog: Catalog, r: dict, outlines: dict, max_messages: int) -> di
             hint = _hint(found, r)
             if hint:
                 t["hint"] = hint
+        explained = explain(every, r.get("executed_as_name"))
+        if explained:
+            t["explained"] = explained
     result: dict = {"failed_tasks": list(tasks.values())}
     if package_errors:
         result["package_errors"] = package_errors[:max_messages]
+        explained = explain(package_errors, r.get("executed_as_name"))
+        if explained:
+            result["package_errors_explained"] = explained
     if not tasks and not package_errors:
         result["note"] = ("no error messages or failed tasks recorded; the execution may have been run with "
                           "logging level None, or ended unexpectedly (check the SQL Agent job history)")

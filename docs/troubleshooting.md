@@ -57,6 +57,16 @@ For each failed (or unexpectedly ended) execution:
 - **hint**: for PowerShell/Python/other process tasks, SSIS logs only the exit code, not
   the process's own error output (unless the task has a `StandardErrorVariable`). The hint
   gives the exact command line and machine to rerun it on.
+- **explained**: for errors SSIS logs without saying why, the usual cause and the fix
+  (`package_errors_explained` for package-level errors). `0xC0202009`/DTS_E_OLEDBERROR only
+  wraps the real error, so its `real_error` is the OLE DB record's Description. Others:
+  VS_NEEDSNEWMETADATA (a table changed after the build), truncation and conversion errors,
+  "provider is not registered" (the 64-bit Excel/ACE driver missing on the server, or the
+  job step's 32-bit setting), login, database and object permissions, files and mapped drives,
+  no environment selected in the job step, script tasks built for another SQL Server version,
+  user-key encryption, deadlocks, timeouts, duplicate keys, NULLs, foreign keys, memory. Many
+  "works in Visual Studio, fails in the job" errors come from the run's account: errors about
+  logins, permissions and files carry `run_as`, the account the run used.
 - **outline_note** if the project was redeployed after the run (task details then come from
   the current version).
 

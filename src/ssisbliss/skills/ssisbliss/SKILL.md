@@ -59,7 +59,7 @@ package is deployed as that package (with a warning).
 | check packages before a PR / review | `ssisbliss lint --changed path/to/dtsx` (all: without `--changed`). Report errors and warnings by package, task and line; do not fix them yourself unless asked |
 | SQL in a package laid out readably | `ssisbliss format path/Pkg.dtsx` (only when they ask: it rewrites their file; `--check` changes nothing) |
 | the SQL changes for a PR description | `ssisbliss sql-diff --formatted --markdown path/to/dtsx`: paste its output (git shows a package's SQL as one long line) |
-| is this SQL valid on the server? | `ssisbliss lint --env dev path/Pkg.dtsx` (rule SSB210: the server's own parser) |
+| is this SQL valid on the server? will the data flows still match the tables? | `ssisbliss lint --env dev path/Pkg.dtsx` (SSB210: the server's own parser; SSB401-405: data flow columns against the server's tables) |
 
 ## Why did it fail?
 
@@ -74,6 +74,8 @@ package is deployed as that package (with a warning).
    package the job's package runs: report the child), its error, its SQL or the
    PowerShell/Python command, `connection_parameters` (with `override_note` when a job step
    overrides a parameter), and a `hint`. No messages at all usually means logging level None.
+   `explained` gives the usual cause and fix for known errors (`real_error` is the error inside an
+   OLE DB wrapper; `run_as` the account the run used): report it, but say it is the likely cause.
 4. `ssisbliss outline --env prod --folder F --project P --package Pkg` - what the package does.
 
 Report the cause in the developer's terms: which job, which task, what failed, and what to change
