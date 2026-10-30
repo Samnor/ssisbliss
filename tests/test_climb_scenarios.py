@@ -356,3 +356,15 @@ def test_climb_saves_each_proposal_as_a_patch(tmp_path, monkeypatch):
     (tmp_path / "b.py").unlink()
     sp.run(["git", "apply", str(tmp_path / "p.patch")], cwd=tmp_path, check=True)
     assert (tmp_path / "a.py").read_text() == "x = 2\n" and (tmp_path / "b.py").read_text() == "y = 1\n"
+
+
+def test_peeking_means_touching_a_fake_server_not_searching_for_a_skill():
+    from run import peeks
+    w = "/runs/x/world/servers"
+    assert not peeks(f"pwd && rg --files -g 'SKILL.md' -g 'AGENTS.md' . {w} | head -80; ssisbliss --help")
+    assert not peeks(f"ssisbliss status --dir {w}")
+    assert peeks(f"cat {w}/dev/state.json")
+    assert peeks(f"ls {w}/dev")
+    assert peeks(f"rg --files -g '*.dtsx' -g '*.ispac' . {w}")                   # what is deployed
+    assert peeks(f"find {w} -name '*.md' -exec cat {{}} +")
+    assert peeks(f"rg --files -g '*.md' {w}; cat {w}/prod/x.json")
