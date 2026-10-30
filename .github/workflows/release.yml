@@ -1,7 +1,10 @@
 name: Release
 
-# Push a tag like v0.1.0 (matching the version in pyproject.toml) to publish to PyPI.
-# Uses PyPI trusted publishing: no token is stored in the repository.
+# Push a tag like v0.1.0 (matching the version in pyproject.toml): tests run, and a GitHub release is
+# made with the wheel and source archive and that version's CHANGELOG section. Install from it with
+#   pip install "git+https://github.com/Samnor/ssisbliss@v0.1.0"
+# Publishing to PyPI as well is opt-in: register this workflow as a trusted publisher on pypi.org
+# (environment `pypi`), then set the repository variable PUBLISH_TO_PYPI to true. No token is stored.
 on:
   push:
     tags: ["v*"]
@@ -27,8 +30,29 @@ jobs:
           name: dist
           path: dist/
 
-  publish:
+  github-release:
     needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## " v "( |$)" {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "no CHANGELOG section for $version"; exit 1; }
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "ssisbliss $GITHUB_REF_NAME" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  pypi:
+    needs: build
+    if: vars.PUBLISH_TO_PYPI == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

@@ -39,12 +39,14 @@ and prints PASS/FAIL per check; it is run after tool changes and merged hill cli
 Into any environment, with nothing added to your SSIS repository:
 
 ```bash
-uv tool install ssisbliss          # or: pipx install ssisbliss / pip install ssisbliss
+pip install "git+https://github.com/Samnor/ssisbliss@v0.1.0"
 ssisbliss --help
 ssisbliss install-skill            # optional: the ssisbliss skill for Claude Code and Codex (user level)
 ```
 
-The latest from GitHub: `uv tool install git+https://github.com/Samnor/ssisbliss`.
+Or as a tool of its own: `uv tool install "git+https://github.com/Samnor/ssisbliss@v0.1.0"` (or
+`pipx install` with the same URL). Leave out `@v0.1.0` for the latest from main. Needs git; each
+[release](https://github.com/Samnor/ssisbliss/releases) also has the wheel to install directly.
 
 Needs Python 3.11+. Talking to a server needs Microsoft ODBC Driver 17 or 18 for SQL Server;
 `build`, `outline` on a file and `install-skill` work without it. SSISDB only accepts deploys
