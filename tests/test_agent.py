@@ -197,3 +197,15 @@ def test_troubleshooting_help_points_at_chain_first(capsys):
         text = " ".join(capsys.readouterr().out.split())
         assert "Start with `ssisbliss chain --env ENV`" in text
         assert "an empty list does not mean the load is fine" in text
+
+
+def test_top_level_help_gives_the_failure_path_in_order(capsys):
+    from ssisbliss.ssis.cli import main
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    path = text[text.index("Why did a job or nightly load fail?"):]
+    assert path.index("1. chain --env ENV") < path.index('2. history --env ENV "JOB" --runs 1') \
+        < path.index("3. executions --env ENV --id N")
+    assert "an empty list does not mean the load is fine; start from chain" in path
+    assert "no environment named: dev" in text
