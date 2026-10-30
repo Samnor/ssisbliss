@@ -368,3 +368,18 @@ def test_peeking_means_touching_a_fake_server_not_searching_for_a_skill():
     assert peeks(f"rg --files -g '*.dtsx' -g '*.ispac' . {w}")                   # what is deployed
     assert peeks(f"find {w} -name '*.md' -exec cat {{}} +")
     assert peeks(f"rg --files -g '*.md' {w}; cat {w}/prod/x.json")
+
+
+def test_sameoutput_finds_the_ssisbliss_parts_of_agent_commands():
+    from sameoutput import ssisbliss_calls
+    assert ssisbliss_calls("cd /w/work && ssisbliss status --env dev --dir STAGE | head -40") == \
+        [("/w/work", ["status", "--env", "dev", "--dir", "STAGE"])]
+    assert ssisbliss_calls("/bin/zsh -lc 'ssisbliss chain --env prod 2>&1; echo done'") == [(None, ["chain", "--env", "prod"])]
+    assert ssisbliss_calls('ssisbliss deploy-packages --plan-id "$ID"') == []          # needs the agent's shell
+    assert ssisbliss_calls("git status; cat x") == []
+
+
+def test_climb_judges_only_tool_changes_by_output():
+    import climb as c
+    assert c.speed_only(["src/ssisbliss/ssis/gitscan.py", "tests/test_activity.py"])
+    assert not c.speed_only(["src/ssisbliss/ssis/gitscan.py", "src/ssisbliss/skills/ssisbliss/SKILL.md"])

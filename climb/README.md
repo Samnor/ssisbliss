@@ -79,6 +79,10 @@ the benchmarks run before the agents, and a change that makes one clearly slower
 10% more git processes) is reverted at once; a change that makes one clearly faster (20%) is kept when
 the agents scored no worse than noise (two `--min-gain`). A clearly faster change that scores up to six
 `--min-gain` below the best is run once more and judged on the average of the two runs, since one run
-moves by about 200 points on noise alone. Every proposal's diff is saved as `iter-N.patch` in the run
+moves by about 200 points on noise alone. A clearly faster change is first replayed (`climb/sameoutput.py`): every `ssisbliss` command the agents
+ran in the best run, and every `--help` page, on fresh scenario worlds with the old and the new code. If
+all output is identical, the agents cannot have scored differently, so it is kept on speed alone, without
+an agent run (which would only add noise). A change to the skill always goes to the agents.
+Every proposal's diff is saved as `iter-N.patch` in the run
 folder, kept or not. Kept changes are commits on
 a `climb/<id>` branch, checked with `lab/lab.py verify` before they are merged.

@@ -8,6 +8,8 @@ violations, otherwise reverted. Speed and scale are measured too (climb/perf.py:
 benchmarks at real sizes): a change that makes a benchmark clearly slower is reverted whatever the
 agents scored, and a change that makes one clearly faster is kept if the agents did not get worse
 (a faster change that scores just below that is run once more and judged on the average of both runs).
+A change that is clearly faster and leaves the output of every command the agents ran unchanged
+(climb/sameoutput.py) is kept without agent runs: the agents cannot have scored differently.
 Every proposal's diff is saved as iter-N.patch, kept or not. Runs on a climb/ branch.
 
 The field agents default to the small models the tools are built for, with and without the skill:
@@ -30,6 +32,7 @@ REPO = CLIMB.parent
 sys.path.insert(0, str(CLIMB))
 
 import perf  # noqa: E402
+import sameoutput  # noqa: E402
 from matrix import markdown as matrix_markdown  # noqa: E402
 from run import run_suite  # noqa: E402
 
@@ -82,6 +85,8 @@ Rules:
   other agents skip a skill that breaks this).
 - No client, company or personal names anywhere.
 - A change that makes any benchmark clearly slower is reverted, whatever the agents scored.
+- A change that makes a benchmark clearly faster and leaves every output the agents saw byte-identical is
+  kept on speed alone. So a pure speed change should not touch any message, help text or JSON field.
 - Add or update tests for the change; `uv run pytest -q` must pass.
 - When done, write a short description of the change (first line = summary) to {summary_file}.
 
@@ -134,6 +139,12 @@ def measure(out: Path, a) -> dict:
 # A clearly faster change whose agents scored up to this many --min-gain below the best is run once more
 # and judged on the average (one run of 132 scenarios moves by about 200 points on noise alone).
 RECHECK = 6
+
+
+def speed_only(files: list[str]) -> bool:
+    """Could the agents only see this change through the tools' output? The skill and its instructions
+    reach them directly, so a change to those always goes to the agents."""
+    return all(not f.startswith("src/ssisbliss/skills/") for f in files)
 
 
 def decide(new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: float) -> tuple[bool, str]:
@@ -248,11 +259,24 @@ def main() -> None:
             continue
         run_dir = root / f"iter-{i}"
         new_perf = measure(run_dir, a)
-        worse, _ = perf.compare(new_perf, best_perf)
+        worse, faster = perf.compare(new_perf, best_perf)
         if worse:                                   # no agent runs needed: slower is reverted regardless
             note(f"## iter {i}: reverted, slower — {title}\n\n" + "; ".join(worse) + f"\nfiles: {', '.join(files)}\n")
             revert()
             continue
+        if faster and speed_only(files):            # faster and everything agents saw is unchanged: keep, no agent runs
+            same = sameoutput.compare(best_dir)
+            if same["same"]:
+                note(f"## iter {i}: kept (faster, and all {same['commands']} commands the agents ran give the same "
+                     f"output) — {title}\n\n" + "; ".join(faster) + f"\nfiles: {', '.join(files)}\n\n"
+                     f"{perf.markdown(new_perf, best_perf)}")
+                git("add", "-A")
+                git("commit", "-q", "-m", f"climb: {title}\n\n{summary}\n\nFaster with the same output for all "
+                    f"{same['commands']} agent commands ({climb_id} iter {i}): {'; '.join(faster)}\n\n"
+                    "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
+                best_perf = new_perf
+                continue
+            note(f"## iter {i}: faster, but output changed ({'; '.join(same['differences'][:3])}): agents decide")
         cards = evaluate(run_dir, agents, a)
         new = totals(cards)
         keep, why = decide(new, best, new_perf, best_perf, a.min_gain)

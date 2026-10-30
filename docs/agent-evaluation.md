@@ -83,7 +83,11 @@ XML by hand (literal line breaks in an attribute become spaces when SSIS reads t
 description now covers linting, laying out SQL and pull requests. Without the skill, Haiku still
 tries the hand edit (0/2); `--help` now warns against it.
 
-One run per scenario: a few points either way is noise.
+One run per scenario: a few points either way is noise, and a whole run of 132 scenarios moves by
+200-400 points on noise alone. That once threw away a change that made activity and strays 7× faster
+with byte-identical output. So a change that only makes the tools faster is now judged without agents:
+`climb/sameoutput.py` replays every `ssisbliss` command the agents ran, and every `--help` page, with the
+old and the new code on fresh scenario worlds, and if nothing differs the change is kept on speed alone.
 
 ## In VS Code
 
