@@ -81,8 +81,11 @@ def entries(paths: list[Path], key: str, state: Path | None = None) -> dict[str,
     the record for `Stage_Customer.dtsx` when that is the only match.
     """
     out: dict[str, dict] = {}
+    by_folder: dict[Path, dict] = {}   # read once per folder (two git calls), not once per package
     for p in paths:
-        packages = _packages(p.parent, key, state)
+        if p.parent not in by_folder:
+            by_folder[p.parent] = _packages(p.parent, key, state)
+        packages = by_folder[p.parent]
         entry = packages.get(p.name)
         if entry is None:
             same = [v for n, v in packages.items() if n.lower() == p.name.lower()]

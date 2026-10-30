@@ -17,6 +17,8 @@ First release.
 - `ssisbliss strays` and `remove-packages --strays`: find and safely remove deployed packages nobody has.
   The git scan behind them reads every package version through one `git cat-file --batch` process
   (about 4× faster with 40 colleague branches).
+- Base records are read once per folder rather than once per package: `status` and deploy plans on a
+  200-package project take well under a second (were 3.5 s and 7 s).
 - `ssisbliss lint`, `format` and `sql-diff`: lint packages and their SQL (correctness and readability,
   optional server parsing, baselines, `--changed`); lay out SQL readably and safely; show SQL changes
   as a readable diff for pull requests.

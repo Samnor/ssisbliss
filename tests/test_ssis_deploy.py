@@ -576,6 +576,19 @@ def test_clones_with_the_same_origin_share_base_records(tmp_path):
     assert base.lookup([tmp_path / "b" / "Load_B.dtsx"], "SRV/F/P") == {"Load_B.dtsx": "def"}
 
 
+def test_base_records_are_read_once_per_folder(tmp_path, monkeypatch):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    (tmp_path / "sub").mkdir()
+    names = [f"Load_{i:03d}.dtsx" for i in range(50)]
+    base.record(tmp_path, "SRV/F/P", 3, {n: n for n in names})
+    calls = []
+    real = base._git
+    monkeypatch.setattr(base, "_git", lambda *a: calls.append(a) or real(*a))
+    found = base.lookup([tmp_path / n for n in names] + [tmp_path / "sub" / "Other.dtsx"], "SRV/F/P")
+    assert found == {n: n for n in names}
+    assert len(calls) == 4                           # two git calls for each of the two folders, not per package
+
+
 def test_legacy_folder_records_are_still_read(tmp_path):
     (tmp_path / base.FILE).write_text(json.dumps({"SRV/F/P": {"packages": {"Load_A.dtsx": {"sha256": "old", "lsn": 1}}}}))
     assert base.lookup([tmp_path / "Load_A.dtsx"], "SRV/F/P") == {"Load_A.dtsx": "old"}
