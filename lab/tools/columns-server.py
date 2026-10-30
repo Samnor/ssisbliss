@@ -73,7 +73,8 @@ result["changed_query"] = findings(query_source)
 rules = lambda key: sorted(f["rule"] for f in result[key] if f["severity"] != "info")  # noqa: E731
 result["ok"] = (result["in_step"] == [] and result["in_step_query"] == []
                 and rules("changed") == ["SSB402", "SSB404", "SSB405"]
-                # the query names Balance, which is gone: the server cannot describe it, said as not checked
-                and any(f["rule"] == "SSB409" and "Balance" in f["message"] for f in result["changed_query"]))
+                # the query names Balance, which is gone: the query itself fails, with the server's real message
+                and any(f["rule"] == "SSB402" and "Invalid column name 'Balance'" in f["message"]
+                        for f in result["changed_query"]))
 cur.execute(f"USE master; ALTER DATABASE [{DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB}]")
 print(json.dumps(result, indent=1))

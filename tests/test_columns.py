@@ -161,7 +161,18 @@ def test_query_sources_are_compared_with_the_querys_result(tmp_path):
     [f] = run(tmp_path, package(SRC, SRC, source_mode="2", sql=sql), schema)
     assert f.rule == "SSB402" and "Balance" in f.message and "its query in Sales" in f.message
     findings = run(tmp_path, package(SRC, SRC, source_mode="2", sql="SELECT * FROM dbo.Nope"), schema)
-    assert findings[0].rule == "SSB409" and "Invalid object name" in findings[0].message
+    assert findings[0].rule == "SSB401" and "Invalid object name" in findings[0].message
+    schema.queries["SELECT 1"] = "Incorrect syntax near 'x'."
+    findings = run(tmp_path, package(SRC, SRC, source_mode="2", sql="SELECT 1"), schema)
+    assert findings[0].rule == "SSB409" and "Incorrect syntax" in findings[0].message
+
+
+def test_the_servers_real_message_not_the_generic_one():
+    from ssisbliss.ssis.columns import server_message
+    error = ("('42000', \"[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'Balance'. "
+             "(207) (SQLExecDirectW); [42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The batch could "
+             "not be analyzed because of compile errors. (11501)\")")
+    assert server_message(error) == "Invalid column name 'Balance'."
 
 
 def test_server_types_map_to_data_flow_types():

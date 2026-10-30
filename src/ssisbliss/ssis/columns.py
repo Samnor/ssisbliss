@@ -203,6 +203,14 @@ def compare(file: str, e: Endpoint, server: list[Col], where: str) -> list[Findi
     return found
 
 
+def server_message(error: str) -> str:
+    """SQL Server's own messages from a driver error, without the generic ones that only say an earlier
+    message is the reason (11501 "could not be analyzed because of compile errors", 11529, 8180)."""
+    found = re.findall(r"\]([^\[\]]+?)\s*\((\d+)\)", error)
+    real = [m.strip() for m, code in found if code not in ("11501", "11529", "8180")]
+    return "; ".join(dict.fromkeys(real or [m.strip() for m, _ in found]))[:300] or error[:300]
+
+
 class ServerSchema:
     """Columns of tables and query results on a SQL Server, read through a pyodbc connection."""
 
@@ -240,7 +248,7 @@ class ServerSchema:
             rows = self.conn.cursor().execute(
                 f"EXEC [{db}].sys.sp_describe_first_result_set @tsql = ?, @params = ?", text, declared or None).fetchall()
         except Exception as ex:   # noqa: BLE001 - the server's message is the finding
-            return str(ex).split("]")[-1].split("(SQLExecDirectW)")[0].strip()[:300]
+            return server_message(str(ex))
         out = []
         for r in rows:
             if getattr(r, "is_hidden", 0):
@@ -283,7 +291,16 @@ def check(file: str, data: bytes, schema, server_label: str, project_dir: Path |
         else:
             cols = schema.query(e.database, e.sql or "")
             if isinstance(cols, str):
-                note(f"{server_label} cannot describe its query: {cols}")
+                # A query that no longer compiles fails at night the same way a missing column does.
+                gone = re.search(r"Invalid (column|object) name", cols)
+                if gone:
+                    rule = "SSB402" if gone.group(1) == "column" else "SSB401"
+                    found.append(Finding(rule, "error", file, e.task, e.path, 1, 1,
+                                         f"{e.component} (source, its query in {e.database}): the query fails on "
+                                         f"{server_label}: {cols}", "fix the query, or deploy the database change "
+                                         "it needs to this environment first"))
+                else:
+                    note(f"{server_label} cannot describe its query: {cols}")
                 continue
             found += compare(file, e, cols, f"its query in {e.database}")
     return found
