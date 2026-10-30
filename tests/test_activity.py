@@ -181,3 +181,38 @@ def test_strays_refuses_a_folder_that_is_not_the_project(tmp_path):
     assert code == 2 and "--dir STAGE" in out["error"]
     code, out = cli(w, "remove-packages", *DEV, "--dir", ".", "--strays")
     assert code == 2 and "--dir STAGE" in out["error"]
+
+
+def test_blobs_reads_files_at_revisions_through_one_git_process(tmp_path, monkeypatch):
+    from ssisbliss.ssis import gitscan
+    from ssisbliss.ssis.dtsx import package_sha256
+    g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)  # noqa: E731
+    g("init", "-q", "-b", "main")
+    g("config", "user.email", "me@example.com")
+    g("config", "user.name", "Me")
+    (tmp_path / "sub").mkdir()
+    data = task_package("Load One.dtsx", sql=["SELECT 1"])
+    (tmp_path / "sub" / "Load One.dtsx").write_bytes(data)
+    (tmp_path / "sub" / "Copy.dtsx").write_bytes(data)
+    (tmp_path / "sub" / "Broken.dtsx").write_bytes(b"not xml")
+    g("add", "-A")
+    g("commit", "-q", "-m", "one")
+    started = []
+    real = subprocess.Popen
+    monkeypatch.setattr(gitscan.subprocess, "Popen", lambda *a, **k: started.append(a) or real(*a, **k))
+    calls = []
+    real_parse = gitscan.package_sha256
+    monkeypatch.setattr(gitscan, "package_sha256", lambda d: calls.append(1) or real_parse(d))
+    b = gitscan.Blobs(tmp_path)
+    assert b.show("HEAD", "sub/Load One.dtsx") == data
+    assert b.show("HEAD", "sub/Missing.dtsx") is None
+    assert b.show("HEAD", "sub") is None                       # a tree is not a file
+    assert b.sha("HEAD", "sub/Load One.dtsx") == package_sha256(data)
+    assert b.sha("HEAD", "sub/Copy.dtsx") == package_sha256(data)   # same blob: parsed once
+    assert b.sha("HEAD", "sub/Broken.dtsx") == package_sha256(b"not xml")
+    assert b.sha("HEAD", "sub/Missing.dtsx") is None
+    assert b.show("HEAD", "sub/Load One.dtsx") == data           # still in step after all of that
+    assert len(started) == 1 and len(calls) == 2
+    b.close()
+    assert b.show("HEAD", "sub/Copy.dtsx") == data and len(started) == 2
+    b.close()

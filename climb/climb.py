@@ -6,8 +6,9 @@ the tools or the skill; tests must pass; every scenario is run again with every 
 is kept (committed) if the total over all agents rose by at least --min-gain with no more safety
 violations, otherwise reverted. Speed and scale are measured too (climb/perf.py: deterministic
 benchmarks at real sizes): a change that makes a benchmark clearly slower is reverted whatever the
-agents scored, and a change that makes one clearly faster is kept if the agents did not get worse.
-Runs on a climb/ branch.
+agents scored, and a change that makes one clearly faster is kept if the agents did not get worse
+(a faster change that scores just below that is run once more and judged on the average of both runs).
+Every proposal's diff is saved as iter-N.patch, kept or not. Runs on a climb/ branch.
 
 The field agents default to the small models the tools are built for, with and without the skill:
 claude:haiku+skill, codex:gpt-6-luna+skill and claude:haiku. A change has to help them together.
@@ -99,6 +100,14 @@ def changed_files() -> list[str]:
     return [line[3:].strip() for line in out.splitlines() if line.strip()]
 
 
+def save_patch(path: Path, files: list[str]) -> None:
+    """The proposal as a patch (tracked changes and new files), so a reverted idea can be picked up again."""
+    tracked = set(git("ls-files").splitlines())
+    parts = [git("diff", "--binary")]
+    parts += [git("diff", "--no-index", "--binary", "/dev/null", f, check=False) for f in files if f not in tracked]
+    path.write_text("".join(parts))
+
+
 def revert() -> None:
     git("checkout", "--", ".")
     for f in changed_files():          # untracked files the proposer created
@@ -122,6 +131,11 @@ def measure(out: Path, a) -> dict:
     return perf.run(out, repeat=a.perf_repeat)
 
 
+# A clearly faster change whose agents scored up to this many --min-gain below the best is run once more
+# and judged on the average (one run of 132 scenarios moves by about 200 points on noise alone).
+RECHECK = 6
+
+
 def decide(new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: float) -> tuple[bool, str]:
     """Keep a change? (verdict, reason)."""
     worse, faster = perf.compare(new_perf, best_perf)
@@ -133,7 +147,13 @@ def decide(new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: flo
         return True, "agents did better" + (" and faster: " + "; ".join(faster) if faster else "")
     if faster and new["total"] >= best["total"] - 2 * min_gain:
         return True, "faster, agents no worse (within noise): " + "; ".join(faster)
+    if faster and new["total"] >= best["total"] - RECHECK * min_gain:
+        return False, "recheck"
     return False, "not enough better"
+
+
+def average(a: dict, b: dict) -> dict:
+    return {k: round((a[k] + b[k]) / 2, 2) for k in a}
 
 
 def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
@@ -210,6 +230,8 @@ def main() -> None:
         propose(best_dir, (best_dir / "matrix.md").read_text(), summary_file, a.proposer, budget=8.0, history=history,
                 perf_md=perf.markdown(best_perf))
         files = changed_files()
+        if files:
+            save_patch(root / f"iter-{i}.patch", files)
         summary = summary_file.read_text().strip() if summary_file.exists() else "(no summary)"
         title = summary.splitlines()[0][:72] if summary else "(no summary)"
         bad = [f for f in files if not f.startswith(ALLOWED) or f.startswith(FORBIDDEN)]
@@ -234,6 +256,12 @@ def main() -> None:
         cards = evaluate(run_dir, agents, a)
         new = totals(cards)
         keep, why = decide(new, best, new_perf, best_perf, a.min_gain)
+        if why == "recheck":                        # faster, scores just below noise: run the agents once more
+            again = totals(evaluate(run_dir / "recheck", agents, a))
+            note(f"## iter {i}: faster but {describe(new)}; agents run again: {describe(again)}")
+            new = average(new, again)
+            keep, why = decide(new, best, new_perf, best_perf, a.min_gain)
+            why = "on the average of two runs: " + ("not enough better" if why == "recheck" else why)
         verdict = "kept" if keep else "reverted"
         per_agent = "; ".join(f"{ag} {best_cards[ag]['total']}->{cards[ag]['total']}" for ag in agents if ag in best_cards)
         note(f"## iter {i}: {verdict} ({why}) — {title}\n\n{describe(best)} -> {describe(new)}\n{per_agent}\n"

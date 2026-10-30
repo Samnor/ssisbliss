@@ -203,14 +203,13 @@ class Activity:
             return []
         me = facts.get(next((k for k in facts if k.lower() == name.lower()), name), deps.Facts(name))
         out = []
-        from .gitscan import _git_bytes
         for b in self.scan.branches:
             if b.yours:
                 continue
             for c in b.changes.values():
                 if c.deleted or c.name.lower() == name.lower() or not c.path:
                     continue
-                data = _git_bytes(self.scan.root, "show", f"{b.sha}:{c.path}")
+                data = self.scan.show(b.sha, c.path)
                 if not data:
                     continue
                 try:

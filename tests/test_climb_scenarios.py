@@ -333,5 +333,26 @@ def test_climb_keeps_and_reverts_on_speed_and_agents():
     assert not c.decide({"total": 11100, "safety_violations": 0}, best, slower, best_perf, 50)[0]      # but slower
     assert not c.decide({"total": 11100, "safety_violations": 1}, best, same, best_perf, 50)[0]        # less safe
     assert c.decide({"total": 10950, "safety_violations": 0}, best, faster, best_perf, 50)[0]          # faster, noise
-    assert not c.decide({"total": 10800, "safety_violations": 0}, best, faster, best_perf, 50)[0]      # faster, worse
+    assert c.decide({"total": 10800, "safety_violations": 0}, best, faster, best_perf, 50) == (False, "recheck")
+    assert c.decide({"total": 10650, "safety_violations": 0}, best, faster, best_perf, 50) == (False, "not enough better")
+    assert c.decide({"total": 10800, "safety_violations": 0}, best, same, best_perf, 50) == (False, "not enough better")
+    assert c.average({"total": 10800, "steps": 700}, {"total": 11000, "steps": 701}) == {"total": 10900, "steps": 700.5}
     assert not c.decide({"total": 11020, "safety_violations": 0}, best, same, best_perf, 50)[0]        # within noise
+
+
+def test_climb_saves_each_proposal_as_a_patch(tmp_path, monkeypatch):
+    import subprocess as sp
+
+    import climb as c
+    sp.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    sp.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    sp.run(["git", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "a"], cwd=tmp_path, check=True)
+    (tmp_path / "a.py").write_text("x = 2\n")
+    (tmp_path / "b.py").write_text("y = 1\n")
+    monkeypatch.setattr(c, "REPO", tmp_path)
+    c.save_patch(tmp_path / "p.patch", c.changed_files())
+    sp.run(["git", "checkout", "--", "."], cwd=tmp_path, check=True)
+    (tmp_path / "b.py").unlink()
+    sp.run(["git", "apply", str(tmp_path / "p.patch")], cwd=tmp_path, check=True)
+    assert (tmp_path / "a.py").read_text() == "x = 2\n" and (tmp_path / "b.py").read_text() == "y = 1\n"

@@ -27,6 +27,69 @@ def _git(cwd: Path, *args: str) -> str | None:
     return None if out is None else out.decode("utf-8", "replace").strip()
 
 
+class Blobs:
+    """Files at revisions, read through one `git cat-file --batch` process instead of one `git show` each,
+    with each package's fingerprint computed once per blob (a version shared by many commits and branches
+    is parsed once). Started on first use; close() ends the process, and the next read starts it again."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self._proc: subprocess.Popen | None = None
+        self._sha: dict[str, str | None] = {}
+
+    def _read(self, ref: str, path: str) -> tuple[str, bytes] | None:
+        """(blob id, contents), or None when the path is missing there or is not a file."""
+        if "\n" in path:
+            data = _git_bytes(self.root, "show", f"{ref}:{path}")
+            return None if data is None else ("", data)
+        if self._proc is None or self._proc.poll() is not None:
+            self._proc = subprocess.Popen(["git", "cat-file", "--batch"], cwd=self.root, stdin=subprocess.PIPE,
+                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        assert self._proc.stdin and self._proc.stdout
+        self._proc.stdin.write(f"{ref}:{path}\n".encode())
+        self._proc.stdin.flush()
+        header = self._proc.stdout.readline().decode("utf-8", "replace").split()
+        if len(header) != 3:                        # "<name> missing" or "<name> ambiguous"
+            return None
+        oid, kind, size = header
+        data = self._proc.stdout.read(int(size))
+        self._proc.stdout.read(1)                   # the newline after the contents
+        return (oid, data) if kind == "blob" else None
+
+    def show(self, ref: str, path: str) -> bytes | None:
+        got = self._read(ref, path)
+        return got[1] if got else None
+
+    def sha(self, ref: str, path: str) -> str | None:
+        """package_sha256 of the package at ref, or None (missing, or not a readable package)."""
+        got = self._read(ref, path)
+        if got is None:
+            return None
+        oid, data = got
+        if oid and oid in self._sha:
+            return self._sha[oid]
+        try:
+            v = package_sha256(data)
+        except Exception:   # noqa: BLE001 - a broken file still counts as a change, just without a fingerprint
+            v = None
+        if oid:
+            self._sha[oid] = v
+        return v
+
+    def close(self) -> None:
+        if self._proc and self._proc.poll() is None:
+            assert self._proc.stdin
+            self._proc.stdin.close()
+            self._proc.wait(timeout=10)
+        self._proc = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:   # noqa: BLE001 - interpreter shutdown
+            pass
+
+
 @dataclass
 class PackageChange:
     name: str
@@ -61,6 +124,13 @@ class GitScan:
     main_names: dict[str, str] = field(default_factory=dict)      # name (lower) -> name as spelled on the default branch
     fetched: bool = False
     note: str = ""
+    blobs: Blobs | None = field(default=None, repr=False, compare=False)
+
+    def show(self, ref: str, path: str) -> bytes | None:
+        """The file at path in ref, or None."""
+        if self.blobs is None:
+            self.blobs = Blobs(self.root)
+        return self.blobs.show(ref, path)
 
     def changing(self, name: str, include_yours: bool = False) -> list[tuple[Branch, PackageChange]]:
         key = name.lower()
@@ -104,16 +174,6 @@ def _packages_at(root: Path, ref: str, prefix: str) -> dict[str, tuple[str, str]
     return found
 
 
-def _sha_at(root: Path, ref: str, path: str) -> str | None:
-    data = _git_bytes(root, "show", f"{ref}:{path}")
-    if data is None:
-        return None
-    try:
-        return package_sha256(data)
-    except Exception:   # noqa: BLE001 - a broken file still counts as a change, just without a fingerprint
-        return None
-
-
 def scan(directory: Path, fetch: bool = False) -> GitScan | None:
     """None when the folder is not in a git repository."""
     directory = directory.resolve()
@@ -128,13 +188,13 @@ def scan(directory: Path, fetch: bool = False) -> GitScan | None:
         fetched = _git(root, "fetch", "--quiet", "--prune") is not None
         note = "" if fetched else "git fetch failed; using the remote branches as of the last fetch"
     s = GitScan(root=root, prefix=prefix, default=_default_branch(root), me=(_git(root, "config", "user.email") or "").lower(),
-                current=_git(root, "rev-parse", "--abbrev-ref", "HEAD"), fetched=fetched, note=note)
+                current=_git(root, "rev-parse", "--abbrev-ref", "HEAD"), fetched=fetched, note=note, blobs=Blobs(root))
     if not s.default:
         s.note = (s.note + "; " if s.note else "") + "no default branch found (origin/HEAD, main or master)"
         return s
     main = _packages_at(root, s.default, prefix)
     s.main_names = {k: v[0] for k, v in main.items()}
-    s.main_packages = {k: sha for k, (_, path) in main.items() if (sha := _sha_at(root, s.default, path))}
+    s.main_packages = {k: sha for k, (_, path) in main.items() if (sha := s.blobs.sha(s.default, path))}
     upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
     default_sha = _git(root, "rev-parse", s.default)
     refs = _git(root, "for-each-ref", "refs/remotes", "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)") or ""
@@ -159,9 +219,9 @@ def scan(directory: Path, fetch: bool = False) -> GitScan | None:
             ch = PackageChange(name=pkg, path="" if status == "D" else path, author=last[1], email=last[2].lower(),
                                date=last[3], commits=len(commits), deleted=status == "D")
             if not ch.deleted:
-                ch.tip = _sha_at(root, sha, path)
+                ch.tip = s.blobs.sha(sha, path)
                 for c in commits[:MAX_VERSIONS]:
-                    v = _sha_at(root, c[0], path)
+                    v = s.blobs.sha(c[0], path)
                     if v:
                         ch.versions.add(v)
             b.changes[pkg.lower()] = ch
@@ -170,4 +230,5 @@ def scan(directory: Path, fetch: bool = False) -> GitScan | None:
             b.yours = b.yours or bool(s.me) and all(c.email == s.me for c in b.changes.values())
             s.branches.append(b)
     s.branches.sort(key=lambda b: b.date, reverse=True)
+    s.blobs.close()
     return s

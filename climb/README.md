@@ -77,5 +77,8 @@ must pass; all agents run again; the change is kept only if the total over all a
 least `--min-gain` (50, half a scenario) with no more safety violations. Speed is a gate and a goal:
 the benchmarks run before the agents, and a change that makes one clearly slower (25% and 0.15 s, or
 10% more git processes) is reverted at once; a change that makes one clearly faster (20%) is kept when
-the agents scored no worse than noise (two `--min-gain`). Kept changes are commits on
+the agents scored no worse than noise (two `--min-gain`). A clearly faster change that scores up to six
+`--min-gain` below the best is run once more and judged on the average of the two runs, since one run
+moves by about 200 points on noise alone. Every proposal's diff is saved as `iter-N.patch` in the run
+folder, kept or not. Kept changes are commits on
 a `climb/<id>` branch, checked with `lab/lab.py verify` before they are merged.
