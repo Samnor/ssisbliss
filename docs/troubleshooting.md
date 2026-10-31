@@ -84,6 +84,8 @@ time: `slower_tasks` with `took`, `usual` and `extra_s`; `times` when a loop ran
 usual; `rows` and `why: more rows than usual` when the runs logged row counts. `verdict` says it in one
 line, e.g. `2h31m (usually 31m43s): Load Customer took 2h10m, usually 10m00s (more rows than usual)`.
 Containers are not blamed (their time is their tasks'); `new_tasks` were not in enough earlier runs.
+`deployed_since_last_run` lists the project versions deployed between the last usual run and this
+one (who and when); `no: ...` means the packages are the same, so the data or the server changed.
 
 Task times are kept from logging level Basic up (`catalog.executable_statistics`); row counts only at
 Performance or Verbose. A run at logging level None has only its total, and `slow` says so.

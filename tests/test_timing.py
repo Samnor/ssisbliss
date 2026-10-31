@@ -3,7 +3,7 @@ import json
 
 from ssisbliss.agent.status import mark_slow
 from ssisbliss.ssis import cli
-from ssisbliss.ssis.fake import FakeCatalog
+from ssisbliss.ssis.fake import FakeCatalog, dtsx, ispac
 from ssisbliss.ssis.timing import report
 
 
@@ -60,6 +60,7 @@ def test_no_task_times_means_logging_level_none():
 
 def test_slow_command_by_execution_id(tmp_path, capsys):
     c = FakeCatalog()
+    c.add_project("STAGE", "STAGE", ispac("STAGE", {"Main.dtsx": dtsx("Main.dtsx")}))   # deployed 2026-10-01
     c.execution_rows = [{"execution_id": 6, "folder_name": "STAGE", "project_name": "STAGE", "package_name": "Main.dtsx",
                          "status": 7}]
     c.task_rows = [{**r, "folder_name": "STAGE", "project_name": "STAGE", "package_name": "Main.dtsx"}
@@ -68,7 +69,14 @@ def test_slow_command_by_execution_id(tmp_path, capsys):
     assert cli.main(["slow", "--server", f"fake://{tmp_path}", "--id", "6"]) == 0
     doc = json.loads(capsys.readouterr().out)
     assert doc["package"] == "STAGE\\STAGE\\Main.dtsx" and doc["slower_tasks"][0]["task"] == "Load Customer"
+    assert doc["deployed_since_last_run"].startswith("no: STAGE was not deployed")
     assert cli.main(["slow", "--server", f"fake://{tmp_path}", "--id", "7"]) == 2
+    capsys.readouterr()
+    c.next_lsn = 129   # the fake's clock: lsn 130 is 2026-10-06T10:00, between run 5 and run 6
+    c.someone_else_deploys("STAGE", "STAGE", "Main.dtsx", dtsx("Main.dtsx", revision=2))
+    assert cli.main(["slow", "--server", f"fake://{tmp_path}", "--id", "6"]) == 0
+    deploys = json.loads(capsys.readouterr().out)["deployed_since_last_run"]
+    assert deploys == [{"lsn": 130, "by": "LAB\\bob", "at": "2026-10-06T10:00:00"}]
 
 
 def test_history_marks_a_slow_step_and_points_at_slow():

@@ -280,7 +280,18 @@ def cmd_slow(a) -> int:
         _target(a, env, cat, Path("."))
         package = a.package if a.package.lower().endswith(".dtsx") else f"{a.package}.dtsx"
     rows = cat.task_durations(a.folder, a.project, package, a.runs, up_to=a.id)
-    return emit({"package": f"{a.folder}\\{a.project}\\{package}", **report(rows, a.id)})
+    doc = {"package": f"{a.folder}\\{a.project}\\{package}", **report(rows, a.id)}
+    earlier = [r for r in doc.get("runs", []) if r["execution_id"] < doc.get("execution_id", 0) and r["succeeded"]]
+    p = cat.project(a.folder, a.project)
+    if earlier and p is not None:
+        # Was the package changed between the last usual run and this one? If not, the data changed.
+        since, until = str(earlier[0]["start"])[:19], str(doc["start"])[:19]
+        deploys = [{"lsn": v["object_version_lsn"], "by": v["created_by"], "at": str(v["created_time"])[:19]}
+                   for v in cat.versions(p.project_id) if since < str(v["created_time"])[:19] <= until]
+        doc["deployed_since_last_run"] = deploys or (f"no: {a.project} was not deployed between the last usual run "
+                                                     f"({since}) and this one, so the packages are the same; "
+                                                     "what changed is the data or the server")
+    return emit(doc)
 
 
 def cmd_health(a) -> int:
