@@ -231,6 +231,36 @@ def test_rebuild_then_deploy_package_over_a_visual_studio_deployed_project(tmp_p
     assert out["status"] == "verified", out
 
 
+def test_no_dtproj_error_names_the_project_on_the_server_without_choosing_it(tmp_path, monkeypatch, capsys):
+    proj = _project_copy(tmp_path)
+    cat = _server_with(proj)
+    for f in proj.glob("*.dtproj"):
+        f.unlink()
+    (tmp_path / "ssisbliss.toml").write_text('[environments.dev]\nserver = "x"\n')
+    monkeypatch.chdir(tmp_path)
+    status = ["status", "--env", "dev", "--dir", str(proj)]
+    code, out = _cli(monkeypatch, capsys, cat, *status)
+    assert code == 2 and out["error"].startswith("give --project and --folder: no Visual Studio project")
+    assert out["error"].endswith("add --folder CORPUS --project Corpus") and "target_from" not in out
+
+    # A folder without packages of this project is not offered, and the error still refuses.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    code, out = _cli(monkeypatch, capsys, cat, "status", "--env", "dev", "--dir", str(empty))
+    assert code == 2 and "Projects on the server (folder/project): CORPUS/Corpus;" in out["error"]
+
+    # Two projects hold the packages: both are named, none is picked.
+    data = next(iter(cat.projects.values())).ispac
+    cat.add_project("OTHER", "Corpus", data)
+    code, out = _cli(monkeypatch, capsys, cat, *status)
+    assert code == 2 and "CORPUS/Corpus, OTHER/Corpus" in out["error"] and "add --folder" not in out["error"]
+
+    # The hint must not hide the error when the server cannot answer.
+    monkeypatch.setattr(cat, "list_projects", lambda folder: 1 / 0)
+    code, out = _cli(monkeypatch, capsys, cat, *status)
+    assert code == 2 and out["error"].endswith("or above it")
+
+
 def test_folder_and_project_default_like_the_visual_studio_wizard_answers(tmp_path, monkeypatch, capsys):
     # Visual Studio asks for the server and SSISDB path on every deploy and remembers neither; ssisbliss takes the
     # project from the .dtproj, and the folder from your last deploy or pull of it, else ssisbliss.toml.
@@ -242,6 +272,7 @@ def test_folder_and_project_default_like_the_visual_studio_wizard_answers(tmp_pa
     monkeypatch.chdir(tmp_path)
     code, out = _cli(monkeypatch, capsys, cat, *deploy)
     assert code == 2 and out["error"].startswith("give --folder") and "Corpus.dtproj" in out["target_from"]["project"]
+    assert "CORPUS/Corpus, OTHER/Corpus" in out["error"]
 
     (tmp_path / "ssisbliss.toml").write_text('[environments.dev]\nserver = "x"\nfolder = "CORPUS"\n')
     _edit(proj / "Load_B.dtsx", "my change")

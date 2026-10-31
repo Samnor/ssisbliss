@@ -98,7 +98,8 @@ time and remembers neither. ssisbliss needs the environment every time, but `--p
 `--folder` may be left out: the project is the name of the `.dtproj` next to the packages (or in a
 folder above them), and the folder is where you last deployed or pulled that project on that server
 from this repository, else the environment's `folder` in `ssisbliss.toml`. When neither exists,
-the command asks for `--folder`. Every output then starts with `target_from`, saying which folder and
+the command asks for `--folder`. When it must ask, its error names the project on the server that
+holds the packages, or lists the candidates; it never picks one itself. Every output then starts with `target_from`, saying which folder and
 project were chosen and why; the plan's `target` shows them too.
 
 ## Working on PR branches
