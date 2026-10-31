@@ -40,14 +40,15 @@ def _step(job, step_id, name, subsystem, command, on_success=3):
             "on_fail_action": 2, "on_fail_step_id": 0, "proxy": None}
 
 
-def _hist(job, run_id, steps, outcome_status, start):
+def _hist(job, run_id, steps, outcome_status, start, duration=300):
+    """duration: hhmmss, as sysjobhistory stores it."""
     rows, iid = [], run_id * 10
     for i, (name, status, message) in enumerate(steps, start=1):
         rows.append({"job": job, "run_id": run_id, "instance_id": iid + i, "step_id": i, "step_name": name,
-                     "run_status": status, "run_duration": 300, "start_time": start, "message": message,
+                     "run_status": status, "run_duration": duration, "start_time": start, "message": message,
                      "retries_attempted": 0})
     rows.append({"job": job, "run_id": run_id, "instance_id": iid + 9, "step_id": 0, "step_name": "(Job outcome)",
-                 "run_status": outcome_status, "run_duration": 300, "start_time": start,
+                 "run_status": outcome_status, "run_duration": duration, "start_time": start,
                  "message": f"The job {'succeeded' if outcome_status == 1 else 'failed'}. The Job was invoked by "
                             f"Schedule 1 (Nightly). The last step to run was step {len(steps)} ({steps[-1][0]})."})
     return rows
@@ -80,10 +81,12 @@ def _not_found(pkg):
 def build(root: Path, case: str) -> World:
     w = World.build(root)
     prod = w.server("prod")
+    renamed = case in ("renamed", "deployed")
     prod.add_project("BRONZE_API", "IMPORTAPI", ispac("IMPORTAPI", {
-        (f"{n}.dtsx" if not (case == "renamed" and n == "Load_Prices") else "LoadPrices.dtsx"):
+        (f"{n}.dtsx" if not (renamed and n == "Load_Prices") else "LoadPrices.dtsx"):
         (FIXTURES / f"{n}.dtsx").read_bytes() for n in ("Fetch_Prices", "Archive_Files", "Load_Prices")},
-        parameters=["TargetServer", "TargetDb", "LoadMode"]))
+        # "deployed": this afternoon's deploy also renamed the LoadMode parameter that 1 IMPORT_API's step sets
+        parameters=["TargetServer", "TargetDb", "Mode" if case == "deployed" else "LoadMode"]))
 
     states = {"1 IMPORT_API": "ok", "2 LOAD_PRICES": "ok", "3 STAGE": "ok", "4 GOLD": "ok"}
     logging, override, quits_early = 1, "", False
@@ -105,6 +108,9 @@ def build(root: Path, case: str) -> World:
     elif case == "child":       # Main runs Stage_Customer through an Execute Package task; the child fails
         states.update({"3 STAGE": "failed", "4 GOLD": "old"})
     # "earlier": tonight was fine; the night before, 1 IMPORT_API failed (the Python API task)
+    # "deployed": every job ran fine last night; a deploy since renamed a package and a parameter the jobs use
+    # "slow": everything succeeded, but 3 STAGE took 2h31m instead of about half an hour (Load Customer got
+    #         13 times the rows); "health": nothing failed, SSISDB fills the disk because its cleanup job is off
 
     jobs, steps, history, execs = [], [], [], []
     for i, (name, folder, project, pkg) in enumerate(CHAIN):
@@ -112,6 +118,8 @@ def build(root: Path, case: str) -> World:
         start = f"{NIGHT}{i * 5:02d}:01"
         if folder:
             extra = override if name == "2 LOAD_PRICES" else ""
+            if case == "deployed" and name == "1 IMPORT_API":
+                extra = '/Par "\\"$Project::LoadMode\\"";Full '
             steps.append(_step(name, 1, f"Run {pkg[:-5]}", "SSIS",
                                SSIS.format(folder=folder, project=project, package=pkg,
                                            logging=logging if name == "1 IMPORT_API" else 1, extra=extra),
@@ -148,6 +156,19 @@ def build(root: Path, case: str) -> World:
             if i + 1 < len(CHAIN) and not (quits_early and name == "2 LOAD_PRICES"):
                 tonight.append(ok_steps[1])
             history += _hist(name, 200 + i, tonight, 1, start)
+    if case == "slow":
+        for r in history:
+            if r["job"] == "3 STAGE" and r["step_id"] in (0, 1):
+                r["run_duration"] = 23100 if r["run_id"] == 202 else 3100
+        for k, day in enumerate(("25", "26", "27")):
+            history += _hist("3 STAGE", 90 + k, [("Run Main", 1, _ssis_ok(30 + k)),
+                                                 ("Start next", 1, "Job '4 GOLD' started successfully.")], 1,
+                             f"2026-10-{day}T02:10:01", duration=3000 + k * 100)
+        jobs[2]["last_duration"] = 23100
+    if case == "health":
+        jobs.append(_job("SSIS Server Maintenance Job", "2026-03-02T00:00:00", enabled=False))
+        steps.append(_step("SSIS Server Maintenance Job", 1, "SSIS Server Operation Records Maintenance", "TSQL",
+                           "EXEC [internal].[cleanup_server_retention_window]"))
     for name in ("DBA Backup", "syspolicy_purge_history"):
         jobs.append(_job(name, f"{NIGHT}30:00"))
         steps.append(_step(name, 1, "Run", "TSQL", "EXEC dbo.DatabaseBackup @Databases = 'USER_DATABASES';"))
@@ -208,9 +229,49 @@ def build(root: Path, case: str) -> World:
              "message": "Execute Stage_Customer:Error: Error 0xC0202009 while preparing to load the package. The child "
                         "package failed."}]
     # "nolog": logging level None records neither messages nor executable statistics.
+    for p in prod.projects.values():   # the environment the jobs' /ENVREFERENCE 2 names
+        if 2 not in {r["reference_id"] for r in p.env_refs}:
+            p.env_refs = p.env_refs + [{"reference_id": 2, "reference_type": "R", "environment_folder_name": None,
+                                        "environment_name": "Prod"}]
+    if case == "slow":
+        for eid, day, total, customer, rows in ((30, "25", 1800, 590, 390_000), (31, "26", 1860, 610, 405_000),
+                                                (32, "27", 1830, 600, 398_000), (42, "28", 1900, 620, 410_000),
+                                                (62, "29", 9100, 7800, 5_200_000)):
+            start = f"2026-10-{day}T02:10:01"
+            prod.execution_rows.append({**base, "execution_id": eid, "folder_name": "STAGE", "project_name": "STAGE",
+                                        "package_name": "Main.dtsx", "status": 7, "duration_s": total,
+                                        "start_time": f"{start}.0000000+00:00", "end_time": None})
+            where = {"folder_name": "STAGE", "project_name": "STAGE", "package_name": "Main.dtsx",
+                     "execution_id": eid, "status": 7, "start_time": start, "duration_s": total, "times": 1}
+            for path, s_, n in (("\\Main", total, None), ("\\Main\\Truncate stage", 2, None),
+                                ("\\Main\\Load Customer", customer, rows), ("\\Main\\Load Orders", 1150, 2_100_000)):
+                prod.task_rows.append({**where, "execution_path": path, "ms": s_ * 1000, "rows_sent": n})
+    if case == "health":
+        prod.health = {"data_mb": 61_440, "log_mb": 2_048, "operations": 1_900_000, "oldest_operation_days": 1_100}
     prod.save()
     w.snapshot()
     return w
+
+
+# Cases with their own prompt: (name, case, prompt, required groups, trap). Nothing has failed in any of them.
+EXTRA = [
+    ("night-was-slow", "slow",
+     "The nightly load on prod finished, but hours later than usual, so this morning's reports were late. Find out "
+     "why it was slow. Environments are in ./ssisbliss.toml.",
+     [("Load Customer",), ("rows", "5,200,000", "5.2", "more data", "volume")],
+     "nothing failed: one task in 3 STAGE took 2h10m instead of 10m because it got 13 times the rows"),
+    ("deploy-breaks-tonight", "deployed",
+     "This afternoon I deployed a cleaned-up IMPORTAPI project to prod (some package and parameter names changed). "
+     "Will tonight's SQL Agent jobs on prod still run? Environments are in ./ssisbliss.toml.",
+     [("Load_Prices",), ("LoadPrices",), ("LoadMode",)],
+     "last night ran fine; the deployed project renamed a package and a parameter that job steps still name"),
+    ("ssisdb-fills-disk", "health",
+     "The prod SQL Server keeps running out of disk and the DBA says SSISDB is huge. Check the SSIS catalog on prod "
+     "and tell me what's wrong and what the DBA should change. Environments are in ./ssisbliss.toml.",
+     [("SSIS Server Maintenance Job", "maintenance job", "cleanup job"), ("disabled", "not enabled", "turned off"),
+      ("retention", "RETENTION_WINDOW")],
+     "SSISDB's cleanup job is disabled, so three years of logs are kept"),
+]
 
 
 def grades():

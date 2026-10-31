@@ -325,6 +325,9 @@ def _troubleshoot() -> list[Scenario]:
     for name, case, groups, trap in troubleshoot.grades():
         out.append(Scenario(name, troubleshoot.PROMPT, lambda root, c=case: troubleshoot.build(root, c),
                             lambda w, t, g=groups: diagnosed(w, t, g), {}, trap, suite="troubleshoot"))
+    for name, case, prompt, groups, trap in troubleshoot.EXTRA:
+        out.append(Scenario(name, prompt, lambda root, c=case: troubleshoot.build(root, c),
+                            lambda w, t, g=groups: diagnosed(w, t, g), {}, trap, suite="troubleshoot"))
     return out
 
 
@@ -526,6 +529,13 @@ def _lint() -> list[Scenario]:
                  lambda w, t: Result(lc.before_pr_ok(w, t), [], "" if lc.before_pr_ok(w, t) else
                                      "expected the DELETE without WHERE and the 2 ? markers vs 1 mapping, files untouched"),
                  {}, "a DELETE without WHERE and a parameter-mapping mismatch; nothing should be edited", suite="lint"),
+        Scenario("lint-slow-package", f"{T} Stage_Customer.dtsx has become very slow since the customer table grew; "
+                 f"it now runs for hours. Review the package and tell me what makes it slow.", lc.slow_package,
+                 lambda w, t: Result(lc.slow_package_ok(w, t), [], "" if lc.slow_package_ok(w, t) else
+                                     "expected the OLE DB Command, the destination without fast load and the lookup "
+                                     "without a cache, files untouched"),
+                 {}, "a data flow that goes to the server once per row three ways; nothing should be edited",
+                 suite="lint"),
         Scenario("lint-make-readable", f"{T} The SQL in Stage_Customer.dtsx is unreadable in review. Lay it out "
                  f"readably.", lc.make_readable,
                  lambda w, t: Result(lc.make_readable_ok(w), [], "" if lc.make_readable_ok(w) else

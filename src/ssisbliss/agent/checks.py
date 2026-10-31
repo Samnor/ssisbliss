@@ -42,7 +42,11 @@ def _package_names(data: bytes) -> tuple[set[str], set[str]]:
 
 
 def _close(name: str, names) -> list[str]:
-    return difflib.get_close_matches(name, sorted(names), n=3, cutoff=0.5)
+    """The closest names: those almost as close as the best match (a rename, not every similar name)."""
+    scored = sorted(((difflib.SequenceMatcher(None, name.lower(), n.lower()).ratio(), n) for n in names), reverse=True)
+    if not scored:
+        return []
+    return [n for r, n in scored[:3] if r >= 0.5 and r >= scored[0][0] - 0.1]
 
 
 class _Project:

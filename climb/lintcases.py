@@ -87,3 +87,39 @@ def pr_description(root: Path) -> World:
 def pr_description_ok(w: World, text: str) -> bool:
     from scenarios import mentions
     return not changed_files(w) and mentions(text, "o.Region = 'North'") and mentions(text, "Stage_SalesOrder")
+
+
+def _slow_flow() -> bytes:
+    """The data flow of Stage_Customer as a first version often is: a lookup without a cache, an OLE DB Command per
+    row, and a destination without fast load (the package also keeps its SQL tasks)."""
+    def comp(cls, name, **props):
+        p = "".join(f'<property name="{k}">{v}</property>' for k, v in props.items())
+        return f'<component refId="Package\\Load customers\\{name}" componentClassID="{cls}" name="{name}"><properties>{p}</properties></component>'
+    flow = (comp("Microsoft.OLEDBSource", "Customers", AccessMode="2",
+                 SqlCommand="SELECT Id, Name, SegmentCode FROM bronze.Customer")
+            + comp("Microsoft.Lookup", "Find segment", CacheType="2",
+                   SqlCommand="SELECT SegmentCode, SegmentId FROM dbo.Segment")
+            + comp("Microsoft.OLEDBCommand", "Mark loaded",
+                   SqlCommand="UPDATE bronze.Customer SET Loaded = 1 WHERE Id = ?")
+            + comp("Microsoft.OLEDBDestination", "stage Customer", AccessMode="0", OpenRowset="[stage].[Customer]"))
+    data = task_package("Stage_Customer.dtsx", 3, sql=["TRUNCATE TABLE stage.Customer;"])
+    task = ('<DTS:Executable DTS:refId="Package\\Load customers" DTS:ExecutableType="Microsoft.Pipeline" '
+            f'DTS:ObjectName="Load customers"><DTS:ObjectData><pipeline version="1"><components>{flow}</components>'
+            '</pipeline></DTS:ObjectData></DTS:Executable>').encode()
+    return data.replace(b"</DTS:Executables>", task + b"</DTS:Executables>")
+
+
+def slow_package(root: Path) -> World:
+    w = sql_world(root)
+    git(w.work, "checkout", "-q", "-b", "pr/customer-segments")
+    w.edit_local("Stage_Customer.dtsx", _slow_flow())
+    git(w.work, "commit", "-q", "-am", "Stage_Customer: segments")
+    w.snapshot()
+    _snapshot_files(w)
+    return w
+
+
+def slow_package_ok(w: World, text: str) -> bool:
+    from scenarios import mentions
+    return (not changed_files(w) and mentions(text, "OLE DB Command", "Mark loaded")
+            and mentions(text, "fast load", "fast-load", "fastload") and mentions(text, "cache"))
