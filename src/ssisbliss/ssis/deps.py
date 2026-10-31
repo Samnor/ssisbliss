@@ -10,8 +10,10 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from .outline import flatten, outline
+from .sqlformat import CACHED
 
 _PACKAGE_NAME = re.compile(r"<PackageName>\s*([^<]+?)\s*</PackageName>", re.I)
 _PROJECT_PARAM = re.compile(r"\$Project::(\w+)")
@@ -37,14 +39,15 @@ def table_name(parts: list[str]) -> str | None:
     return f"{schema}.{name}".lower()
 
 
-def sql_tables(sql: str) -> tuple[set[str], set[str], bool]:
+@lru_cache(maxsize=CACHED)
+def sql_tables(sql: str) -> tuple[frozenset[str], frozenset[str], bool]:
     """(reads, writes, parsed) for a T-SQL text. Falls back to keyword patterns when it does not parse."""
     try:
         import sqlglot
         from sqlglot import exp
         trees = [t for t in sqlglot.parse(re.sub(r"(?im)^\s*GO\s*$", ";", sql), dialect="tsql") if t is not None]
     except Exception:   # noqa: BLE001 - any parser failure falls back to patterns
-        return (*_pattern_tables(sql), False)
+        return (*map(frozenset, _pattern_tables(sql)), False)
     reads, writes = set(), set()
     for tree in trees:
         aliases = {t.alias.lower(): t for t in tree.find_all(exp.Table) if t.alias}
@@ -72,7 +75,7 @@ def sql_tables(sql: str) -> tuple[set[str], set[str], bool]:
             name = table_name([t.args.get("db") and t.args["db"].name, t.name])
             if name:
                 (writes if id(t) in targets else reads).add(name)
-    return reads, writes, True
+    return frozenset(reads), frozenset(writes), True
 
 
 def _pattern_tables(sql: str) -> tuple[set[str], set[str]]:

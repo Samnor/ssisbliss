@@ -38,6 +38,44 @@ def test_sql_tables_reads_and_writes():
     assert sql_tables("EXEC dbo.LoadCdw @Mode = ?")[:2] == (set(), set())
 
 
+def test_sql_tables_work_out_each_text_once(monkeypatch):
+    import sqlglot
+    sql = "INSERT stage.OnlyHere SELECT * FROM bronze.OnlyHere"
+    sql_tables.cache_clear()
+    first = sql_tables(sql)
+    monkeypatch.setattr(sqlglot, "parse", lambda *a, **k: pytest.fail("parsed the same text twice"))
+    assert sql_tables(sql) == first == ({"bronze.onlyhere"}, {"stage.onlyhere"}, True)
+
+
+def test_activity_does_not_read_a_server_package_your_copy_replaces(monkeypatch):
+    from ssisbliss.ssis import activity as mod
+    from ssisbliss.ssis.fake import ispac
+    from ssisbliss.ssis.ispac import Ispac
+    from ssisbliss.ssis.dtsx import package_sha256
+    server = Ispac(ispac("P", {"Stage_Customer.dtsx": RELEASED["Stage_Customer.dtsx"], "Main.dtsx": RELEASED["Main.dtsx"]}))
+    read = []
+    real = mod.deps.facts
+    monkeypatch.setattr(mod.deps, "facts", lambda n, d: read.append((n, d)) or real(n, d))
+    theirs = task_package("Stage_Customer.dtsx", sql=["INSERT stage.Mine SELECT * FROM bronze.Mine"])
+    found = mod.Activity(None, server=server, local={"stage_customer.dtsx": theirs}).facts()
+    # your copy counts under the deployed spelling; only the package you do not have comes from the server
+    assert read == [("Main.dtsx", RELEASED["Main.dtsx"]), ("Stage_Customer.dtsx", theirs)]
+    assert list(found) == ["Main.dtsx", "Stage_Customer.dtsx"]
+    assert found["Stage_Customer.dtsx"].writes == {"stage.mine"}
+    assert found["Stage_Customer.dtsx"].package == "Stage_Customer.dtsx"
+    assert server.package_hashes()["Main.dtsx"] == package_sha256(RELEASED["Main.dtsx"])
+
+
+def test_package_hashes_are_worked_out_once_and_a_caller_cannot_change_them(monkeypatch):
+    from ssisbliss.ssis import ispac as mod
+    from ssisbliss.ssis.fake import ispac
+    server = mod.Ispac(ispac("P", {"Main.dtsx": RELEASED["Main.dtsx"]}))
+    first = server.package_hashes()
+    first["Main.dtsx"] = "changed by a caller"
+    monkeypatch.setattr(mod, "package_sha256", lambda d: pytest.fail("hashed the same project twice"))
+    assert server.package_hashes()["Main.dtsx"] != "changed by a caller"
+
+
 def test_related_follows_calls_and_tables():
     all_facts = {n: facts(n, d) for n, d in RELEASED.items()}
     depends, used = related("Stage_Customer.dtsx", all_facts)

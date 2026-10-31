@@ -75,8 +75,9 @@ class Activity:
         if self._facts is None:
             found: dict[str, deps.Facts] = {}
             if self.server:
-                for n in self.server.package_names:
-                    found[n] = deps.facts(n, self.server.package(n))
+                mine = {n.lower() for n in self.local}
+                for n in self.server.package_names:     # your copy replaces it below, so it is not read for nothing
+                    found[n] = deps.Facts(n) if n.lower() in mine else deps.facts(n, self.server.package(n))
             for n, data in self.local.items():
                 match = next((k for k in found if k.lower() == n.lower()), n)
                 found.pop(match, None)
