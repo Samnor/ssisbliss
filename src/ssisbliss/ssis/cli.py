@@ -66,6 +66,26 @@ def _dtproj(directory: Path) -> Path | None:
     return None
 
 
+def _targets_on_server(a, cat, directory: Path) -> str:
+    """For a target the command could not work out: what to pass, from the projects on the server, those that
+    hold the packages in `directory` first. Only said in the error: the developer's command names the target."""
+    try:
+        rows = [(r["folder"], r["project"]) for r in cat.list_projects(a.folder or None) if r.get("project")
+                and (not a.project or r["project"].lower() == a.project.lower())]
+        local = {f.name.lower() for f in directory.glob("*.dtsx")}
+        holding = [(f, p) for f, p in rows if local & {n.lower() for n in cat.packages(cat.project(f, p).project_id)}]
+    except Exception:   # noqa: BLE001 - only a hint: the error it adds to must still reach the developer
+        return ""
+    if len(holding) == 1:
+        folder, project = holding[0]
+        return f". The packages in {directory} are in folder {folder}, project {project} on the server: add --folder {folder} --project {project}"
+    found = holding or rows
+    if not found:
+        return ""
+    return (f". {'Projects holding the packages in ' + str(directory) if holding else 'Projects'} on the server "
+            f"(folder/project): {', '.join(f'{f}/{p}' for f, p in found)}; add the right one as --folder F --project P")
+
+
 def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = None) -> None:
     """Fill in --project and --folder when they were not given, the way the developer would answer Visual
     Studio's deploy wizard: the project is the .dtproj's name; the folder is where you last deployed or
@@ -74,7 +94,8 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
     if not a.project:
         dtproj = dtproj or _dtproj(directory)
         if dtproj is None:
-            raise ValueError(f"give --project: no Visual Studio project (.dtproj) in {directory} or above it")
+            raise ValueError(f"give --project{'' if a.folder else ' and --folder'}: no Visual Studio project (.dtproj) "
+                             f"in {directory} or above it{_targets_on_server(a, cat, directory)}")
         from .build import load_dtproj
         a.project = load_dtproj(dtproj).name
         _target_from["project"] = f"{a.project} (from {dtproj})"
@@ -95,7 +116,7 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
         else:
             raise ValueError(f"give --folder: you have not deployed or pulled {a.project} on {server} from this "
                              f"repository, and {'environment ' + env.name if env.name else '--server'} has no folder "
-                             f"in ssisbliss.toml")
+                             f"in ssisbliss.toml{_targets_on_server(a, cat, directory)}")
 
 
 def _server_connection(env: Environment, a):
