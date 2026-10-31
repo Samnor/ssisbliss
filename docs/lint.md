@@ -58,6 +58,14 @@ assignment per line, `AND`/`OR` conditions on their own lines, indented `BEGIN .
 | SSB404 column-size | warn / error | with `--env`: a column's length differs; an error when values would be truncated |
 | SSB405 new-required-column | error | with `--env`: the destination table has a NOT NULL column without a default that the package does not fill |
 | SSB409 columns-not-checked | info | with `--env`: a source or destination could not be compared (table from a variable, database on another server) |
+| SSB501 row-by-row | warn | an OLE DB Command or Slowly Changing Dimension component runs one statement per row |
+| SSB502 no-fast-load | warn | an OLE DB destination without fast load, or an ADO.NET destination with bulk insert off, inserts one row at a time |
+| SSB503 lookup-no-cache | warn | a Lookup with no cache queries the server once per row |
+| SSB504 blocking-sort | info | a Sort component holds every row in memory; sort in the source query instead |
+| SSB510 excel-driver | warn / info | Excel or Access through Jet (32-bit only: works in Visual Studio, fails under SQL Agent) or ACE (needs the Access Database Engine on the server) |
+| SSB511 provider-missing | error | with `--env`: the server does not have the Excel/Access OLE DB provider the package uses |
+| SSB520 temp-table-session | warn | an Execute SQL task makes a `#temp` table on a connection without RetainSameConnection, so the next task cannot see it |
+| SSB521 hard-coded-server | info | a package connection string names a server and has no expression: every environment uses it unless the catalog overrides it |
 | SSB301 not-formatted | warn | the SQL is not laid out the `format` way |
 | SSB302 cannot-format | info | the SQL could not be laid out automatically |
 | SSB303 long-line | info | a line longer than `--max-line` (120) after layout |
@@ -75,6 +83,9 @@ and column inside that statement, a message and a hint.
   VS_NEEDSNEWMETADATA, a truncation error or a failing insert; Visual Studio only notices when
   someone opens the data flow. The database comes from the connection manager (the package's, or
   the project's `.conmgr` next to it); databases that are not on that server are skipped (SSB409).
+- `--env dev` also asks that server which OLE DB providers it has (`xp_enum_oledb_providers`, the
+  64-bit ones SQL Agent's packages use) and reports an Excel or Access provider a package needs that
+  is not there (SSB511). A login that may not list them skips the check.
 - `--fail-on error|warn|info|never` sets when the exit code is 2 (default `error`).
 - `--update-baseline` accepts today's findings, kept per user outside the repository; later runs
   report only new findings (and how many were baselined), so an old project can adopt the linter

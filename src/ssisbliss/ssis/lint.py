@@ -41,6 +41,15 @@ RULES = {
     "SSB405": ("new-required-column", "error", "the destination table has a NOT NULL column the package does not fill"),
     "SSB409": ("columns-not-checked", "info", "a data flow source or destination could not be compared with the server"),
     # readability in a pull request
+    # package design: speed, and what fails under SQL Agent but not in Visual Studio (design.py)
+    "SSB501": ("row-by-row", "warn", "a data flow component runs one statement per row (OLE DB Command, SCD)"),
+    "SSB502": ("no-fast-load", "warn", "a destination inserts one row at a time"),
+    "SSB503": ("lookup-no-cache", "warn", "a lookup without a cache queries the server once per row"),
+    "SSB504": ("blocking-sort", "info", "a Sort holds every row in memory"),
+    "SSB510": ("excel-driver", "warn", "Excel/Access through Jet (32-bit only) or ACE (an extra driver on the server)"),
+    "SSB511": ("provider-missing", "error", "the server does not have an OLE DB provider the package uses"),
+    "SSB520": ("temp-table-session", "warn", "a temp table on a connection that does not keep its session"),
+    "SSB521": ("hard-coded-server", "info", "a connection string with a server name written in the package"),
     "SSB301": ("not-formatted", "warn", "SQL is not laid out the readable way (`ssisbliss format`)"),
     "SSB302": ("cannot-format", "info", "SQL could not be laid out automatically"),
     "SSB303": ("long-line", "info", "a line longer than the limit even after layout"),
@@ -181,11 +190,14 @@ def _first(sql: str, pattern: str) -> tuple[int, int]:
     return _pos(sql, m.start()) if m else (1, 1)
 
 
-def lint_package(file: str, data: bytes, max_line: int = 120) -> list[Finding]:
+def lint_package(file: str, data: bytes, max_line: int = 120, project_dir=None) -> list[Finding]:
+    """project_dir: where the package's project connection managers (.conmgr) are, for the design rules."""
+    from .design import design_findings
     out: list[Finding] = []
     try:
         found = sites(data)
         tasks = flatten(outline(data)["tasks"])
+        out += design_findings(file, data, project_dir)
     except Exception as e:   # noqa: BLE001 - an unreadable package is a finding, not a crash
         return [Finding("SSB201", "warn", file, "", "", 1, 1, f"package could not be read: {type(e).__name__}: {e}")]
     for t in tasks:

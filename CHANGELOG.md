@@ -17,6 +17,14 @@
   not have, a jump to a missing step.
 - `health`: catalog retention and cleanup, SSISDB size and log, the default logging level, executions
   stuck as running after a restart; each warning with the T-SQL fix.
+- `slow` names the tasks that made a run slower than usual: each task's time against its median over
+  earlier successful runs, with row counts when the runs logged them. `history` marks a step that took
+  much longer than in the other runs listed and points at `slow`.
+- New lint rules for speed and for packages that work in Visual Studio but fail under SQL Agent:
+  row-by-row components (SSB501), destinations without fast load (SSB502), lookups without a cache
+  (SSB503), Sort (SSB504), Excel through Jet or ACE (SSB510; with `--env`, a provider the server does
+  not have is SSB511), temp tables on a connection that does not keep its session (SSB520), a server
+  name written in a package's connection string (SSB521).
 
 ## 0.1.0 (2026-10-30)
 

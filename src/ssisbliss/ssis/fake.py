@@ -172,6 +172,7 @@ class FakeCatalog:
         self.event_rows: dict[int, list[dict]] = {}
         self.failed_rows: dict[int, list[dict]] = {}
         self.health: dict = {}   # health_facts() overrides (tests and climb worlds)
+        self.task_rows: list[dict] = []   # task_durations() rows plus folder/project/package_name
         self.parameter_rows: dict[int, list[dict]] = {}   # users with READ but no MODIFY (setup only, not persisted)
         self.path: Path | None = None
 
@@ -195,6 +196,7 @@ class FakeCatalog:
         c.path = path
         c.scheduled = state.get("scheduled", [])
         c.health = state.get("health", {})
+        c.task_rows = state.get("task_durations", [])
         ex = state.get("executions", {})
         c.execution_rows = ex.get("rows", [])
         c.event_rows, c.failed_rows, c.parameter_rows = (
@@ -229,6 +231,7 @@ class FakeCatalog:
         state = {"server_name": self.info.server_name, "major": self.info.major_version, "running": self.running,
                  "next_lsn": self.next_lsn, "folders": sorted(self.folders), "projects": projects,
                  "calls": self.calls, "scheduled": self.scheduled, "health": self.health,
+                 "task_durations": self.task_rows,
                  "executions": {"rows": self.execution_rows, "events": self.event_rows,
                                 "failed": self.failed_rows, "parameters": self.parameter_rows}}
         (path / "state.json").write_text(json.dumps(state, indent=2))
@@ -378,3 +381,10 @@ class FakeCatalog:
         for k, v in self.health.items():
             facts[k] = {**facts[k], **v} if isinstance(v, dict) else v
         return facts
+
+    def task_durations(self, folder: str, project: str, package: str, runs: int, up_to: int | None = None) -> list[dict]:
+        rows = [r for r in self.task_rows if (r["folder_name"], r["project_name"]) == (folder, project)
+                and r["package_name"].lower() == package.lower() and (up_to is None or r["execution_id"] <= up_to)]
+        keep = sorted({r["execution_id"] for r in rows}, reverse=True)[:runs]
+        return sorted((r for r in rows if r["execution_id"] in keep),
+                      key=lambda r: (-r["execution_id"], r.get("execution_path") or ""))

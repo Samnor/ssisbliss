@@ -79,6 +79,11 @@ package is deployed as that package (with a warning).
    OLE DB wrapper; `run_as` the account the run used): report it, but say it is the likely cause.
 4. `ssisbliss outline --env prod --folder F --project P --package Pkg` - what the package does.
 
+Slow rather than failed ("why did last night take three hours?"): `ssisbliss history --env prod "JOB"
+--runs 10` marks the step that took longer than usual (`slower`); run its `next`
+(`ssisbliss slow --env prod --id N`) and report its `verdict`: which task took the extra time, and
+whether it had more rows than usual.
+
 Before a failure, or after a deploy that renamed or removed packages or parameters:
 `ssisbliss jobs --env prod --check --problems` lists job steps that will fail on their next run;
 `ssisbliss health --env prod` checks the catalog (log cleanup, SSISDB size, logging level None,

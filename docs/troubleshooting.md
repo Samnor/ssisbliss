@@ -24,7 +24,7 @@ or `--server`, and use Windows authentication by default.
 | `jobs [--name X] [--failed] [--running] [--brief]` | each job: enabled, running now, last run (outcome, duration, message), schedules, next run, and per step what it runs: the SSIS catalog package with its `/Par` overrides and environment reference, a file or msdb package, or the T-SQL; its `on_success` / `on_failure` action (`go to next step`, `quit reporting success`, ...); which jobs it starts and which jobs start it. `skipped_starts` (kept in `--brief`) lists steps that start a job but never run when the job succeeds, because an earlier step quits on success |
 | `jobs --check [--problems]` | each job step checked against the catalog it runs from: a package, folder or project that is not deployed (renamed or removed by a deploy, with the closest deployed names), a `/Par` override naming a parameter or connection manager the package or project no longer has, an `/ENVREFERENCE` the project does not have, and a step that jumps to a step that does not exist. Each is a `problem` on the job with the step and the fix; all of them fail the next run. A step on another server is a `note` (not checked). `--problems`: only jobs with problems |
 | `chain [--name X]` | job chains linked by `sp_start_job` steps, in order, each link's state in the current or last run (`succeeded`, `failed`, `running`, `not_started`) and a verdict: `completed`, `running: X`, `failed at X`, `stopped after X: Y did not start`. When a chain stopped because X's start-next step is skipped on success, `why` says which step quits the job. When a link is still running, `why` says nothing has failed (no error exists yet; `history` lists only finished runs) and gives its last run's duration (`last_run_took_s`) so an overrun shows. Steps that start a job that does not exist are listed as `missing_jobs` |
-| `history JOB [--runs N] [--failed]` | recent runs with every step's outcome and message; SSIS steps get their `ssis_execution_id`, failed ones the `ssisbliss executions --id` command; a step whose package was not found (renamed or removed by a deploy, so no execution exists) gets a `hint` and an `ssisbliss inspect` command; `skipped_starts` names a step that starts another job but never runs when the job succeeds, since runs list only the steps that ran |
+| `history JOB [--runs N] [--failed]` | recent runs with every step's outcome and message; SSIS steps get their `ssis_execution_id`, failed ones the `ssisbliss executions --id` command; a step whose package was not found (renamed or removed by a deploy, so no execution exists) gets a `hint` and an `ssisbliss inspect` command; `skipped_starts` names a step that starts another job but never runs when the job succeeds, since runs list only the steps that ran; a step that took at least 1.5 times (and a minute more than) its median in the other runs listed is marked `slower`, with the `ssisbliss slow --id` command for an SSIS step |
 
 The chain is built from the jobs themselves (`sp_start_job` in step commands), not from
 naming conventions, so it works for numbered chains (`1 IMPORT`, `2 STAGE`, ...) and any
@@ -74,6 +74,19 @@ For each failed (or unexpectedly ended) execution:
 Statuses: `created`, `running`, `canceled`, `failed`, `pending`, `ended_unexpectedly`,
 `succeeded`, `stopping`, `completed` (`--status` filters, `--failed` = failed or
 ended_unexpectedly).
+
+## Slow, not failed: `ssisbliss slow`
+
+`slow --env ENV --id N` (an execution id from `history`) or `slow --env ENV --folder F --project P
+--package Pkg` (its newest finished run) compares each task's time in that run with its median over
+the package's earlier successful runs (`--runs`, default 20), and names the tasks that took the extra
+time: `slower_tasks` with `took`, `usual` and `extra_s`; `times` when a loop ran more often than
+usual; `rows` and `why: more rows than usual` when the runs logged row counts. `verdict` says it in one
+line, e.g. `2h31m (usually 31m43s): Load Customer took 2h10m, usually 10m00s (more rows than usual)`.
+Containers are not blamed (their time is their tasks'); `new_tasks` were not in enough earlier runs.
+
+Task times are kept from logging level Basic up (`catalog.executable_statistics`); row counts only at
+Performance or Verbose. A run at logging level None has only its total, and `slow` says so.
 
 ## `ssisbliss outline`
 

@@ -117,6 +117,13 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 f"{'logging_level' in d.get('findings_with_level_none', [])}", raw)
     check("jobs-health-server", jobs_health_server)
 
+    def slow_design_server():
+        raw = py("slow-design-server.py")
+        d = first_json(raw)
+        return (bool(d.get("ok")), f"slow: {d.get('slow', {}).get('verdict')}; providers missing for a package's "
+                f"Excel connections: {d.get('missing')}", raw)
+    check("slow-design-server", slow_design_server)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

@@ -13,7 +13,7 @@ from pathlib import Path
 from ..ssis.config import Environment, load_environment
 from .checks import step_problems
 from .source import SqlAgent
-from .status import chains, job_views, runs, skipped_starts
+from .status import chains, job_views, mark_slow, runs, skipped_starts
 
 # In --help of jobs, chain, history and executions: where an agent looks just before its first query.
 TROUBLESHOOT = ("Why did a job or nightly load fail? Start with `ssisbliss chain --env ENV`: it says where the chain "
@@ -22,7 +22,9 @@ TROUBLESHOOT = ("Why did a job or nightly load fail? Start with `ssisbliss chain
                 "`ssisbliss history --env ENV \"JOB\" --runs 1` gives the failed step and its execution id (an earlier "
                 "night: --runs 5), and `ssisbliss executions --env ENV --id N` gives the failing task, its error and "
                 "what it runs. --failed lists only failures, of any night: it misses a job still running or a step "
-                "that never started, so an empty list does not mean the load is fine.")
+                "that never started, so an empty list does not mean the load is fine. Slow rather than failed: "
+                "`history --runs 10` marks a step that took longer than usual (`slower`), and `ssisbliss slow --env ENV "
+                "--id N` names the tasks that took the extra time.")
 
 
 def troubleshooting_help(what: str) -> str:
@@ -101,6 +103,7 @@ def cmd_history(a) -> int:
         if a.job not in names:
             close = [n for n in names if a.job.lower() in n.lower()]
             return emit({"error": f"no job named '{a.job}'" + (f"; did you mean: {', '.join(close)}" if close else "")}, 2)
+    mark_slow(found)
     if a.failed:
         found = [r for r in found if r.get("outcome") != "succeeded"]
     doc: dict = {"server": src.server_name(), "job": a.job, "runs": found}

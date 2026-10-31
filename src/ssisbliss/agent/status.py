@@ -262,6 +262,28 @@ def _chain_status(root: dict, links: list[dict], missing: list[str]) -> dict:
     return out
 
 
+def _clock(s: float) -> str:
+    s = int(round(s))
+    return f"{s}s" if s < 60 else f"{s // 60}m{s % 60:02d}s" if s < 3600 else f"{s // 3600}h{s % 3600 // 60:02d}m"
+
+
+def mark_slow(found: list[dict]) -> None:
+    """A step that took much longer than in the other runs listed gets `slower` (and, for an SSIS step, the
+    `ssisbliss slow` command that names the tasks). Needs at least two other runs of the step."""
+    from statistics import median
+    for i, run in enumerate(found):
+        for step in run["steps"]:
+            others = [s["duration_s"] for j, r in enumerate(found) if j != i for s in r["steps"]
+                      if s["step_id"] == step["step_id"] and s["outcome"] == "succeeded" and s["duration_s"] is not None]
+            if len(others) < 2 or step["duration_s"] is None:
+                continue
+            usual = median(others)
+            if step["duration_s"] >= 1.5 * usual and step["duration_s"] - usual >= 60:
+                step["slower"] = f"took {_clock(step['duration_s'])}, usually {_clock(usual)}"
+                if "ssis_execution_id" in step and "next" not in step:
+                    step["next"] = f"ssisbliss slow --id {step['ssis_execution_id']}"
+
+
 def runs(rows: list[dict]) -> list[dict]:
     """Group sysjobhistory rows (newest run first) into runs with their steps."""
     out: list[dict] = []

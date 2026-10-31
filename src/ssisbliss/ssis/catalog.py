@@ -61,6 +61,8 @@ class Catalog(Protocol):
     def failed_executables(self, execution_id: int) -> list[dict]: ...
     def execution_parameters(self, execution_id: int) -> list[dict]: ...
     def health_facts(self) -> dict: ...
+    def task_durations(self, folder: str, project: str, package: str, runs: int,
+                       up_to: int | None = None) -> list[dict]: ...
 
 
 def package_table_name(name: str) -> str:
@@ -325,3 +327,30 @@ class SqlCatalog:
             else:
                 out[key] = bool(rows[0]["n"])
         return out
+
+    def task_durations(self, folder: str, project: str, package: str, runs: int, up_to: int | None = None) -> list[dict]:
+        """The newest `runs` finished executions of a package (up to execution `up_to`), one row per task per run
+        (a task in a loop: its runs added up), with the most rows on one data flow path when the run logged them
+        (Performance or Verbose). Tasks come from executable_statistics, kept at logging level Basic and up."""
+        return self._rows(f"""
+            WITH runs AS (
+                SELECT TOP ({int(runs)}) execution_id, status, start_time, end_time FROM catalog.executions
+                WHERE folder_name = ? AND project_name = ? AND package_name = ? AND end_time IS NOT NULL
+                  {'AND execution_id <= ?' if up_to is not None else ''}
+                ORDER BY execution_id DESC),
+            tasks AS (
+                SELECT s.execution_id, s.execution_path, SUM(CAST(s.execution_duration AS bigint)) AS ms, COUNT(*) AS times,
+                       MAX(CASE WHEN s.execution_result = 1 THEN 1 ELSE 0 END) AS failed
+                FROM catalog.executable_statistics s JOIN runs r ON r.execution_id = s.execution_id
+                GROUP BY s.execution_id, s.execution_path),
+            flows AS (
+                SELECT d.execution_id, d.execution_path, MAX(d.rows_sent) AS rows_sent
+                FROM catalog.execution_data_statistics d JOIN runs r ON r.execution_id = d.execution_id
+                GROUP BY d.execution_id, d.execution_path)
+            SELECT r.execution_id, r.status, CONVERT(varchar(19), r.start_time, 126) AS start_time,
+                   DATEDIFF(second, r.start_time, r.end_time) AS duration_s,
+                   t.execution_path, t.ms, t.times, t.failed, f.rows_sent
+            FROM runs r LEFT JOIN tasks t ON t.execution_id = r.execution_id
+            LEFT JOIN flows f ON f.execution_id = t.execution_id AND f.execution_path = t.execution_path
+            ORDER BY r.execution_id DESC, t.execution_path""",
+            folder, project, package, *([up_to] if up_to is not None else []))

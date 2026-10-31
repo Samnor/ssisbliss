@@ -265,6 +265,24 @@ def cmd_executions(a) -> int:
     return emit({"executions": report(cat, rows, details=not a.no_details, max_messages=a.max_messages)})
 
 
+def cmd_slow(a) -> int:
+    from .timing import report
+    env = _env(a)
+    cat = _catalog(env, a)
+    if a.id is not None:
+        found = cat.executions(execution_id=a.id, limit=1)
+        if not found:
+            return emit({"error": f"no execution {a.id} in the catalog"}, EXIT_REFUSED)
+        a.folder, a.project, package = found[0]["folder_name"], found[0]["project_name"], found[0]["package_name"]
+    elif not a.package:
+        return emit({"error": "give --id N (an execution, e.g. from history) or --package Pkg"}, EXIT_REFUSED)
+    else:
+        _target(a, env, cat, Path("."))
+        package = a.package if a.package.lower().endswith(".dtsx") else f"{a.package}.dtsx"
+    rows = cat.task_durations(a.folder, a.project, package, a.runs, up_to=a.id)
+    return emit({"package": f"{a.folder}\\{a.project}\\{package}", **report(rows, a.id)})
+
+
 def cmd_health(a) -> int:
     from ..agent.cli import _source
     from .health import CLEANUP_JOB, judge
@@ -756,6 +774,16 @@ def _baseline_path(directory: Path) -> Path:
     return base.state_dir() / "lint-baseline" / (hashlib.sha256(base.repository_id(directory).encode()).hexdigest()[:20] + ".json")
 
 
+def _oledb_providers(conn) -> set[str] | None:
+    """The server's installed (64-bit) OLE DB providers; None when this login may not list them."""
+    try:
+        cur = conn.cursor()
+        cur.execute("EXEC master.dbo.xp_enum_oledb_providers")
+        return {r[0] for r in cur.fetchall()}
+    except Exception:   # noqa: BLE001 - needs sysadmin on some servers: the check is skipped
+        return None
+
+
 def cmd_lint(a) -> int:
     from .lint import RULES, SEVERITY, lint_package, server_parse
     from .sqlsites import sites
@@ -766,16 +794,20 @@ def cmd_lint(a) -> int:
     ignore = {r.strip().upper() for x in a.ignore for r in x.split(",") if r.strip()}
     findings = []
     for f in files:
-        findings += [x for x in lint_package(str(f), f.read_bytes(), a.max_line) if x.rule not in ignore]
+        findings += [x for x in lint_package(str(f), f.read_bytes(), a.max_line, f.parent) if x.rule not in ignore]
     if a.env:
         from .columns import ServerSchema, check
+        from .design import missing_providers
         from .lint import Finding
         env = _env(a)
         raw = _server_connection(env, a)
         label = env.name or env.server
         schema = ServerSchema(raw)
+        providers = _oledb_providers(raw) if "SSB511" not in ignore else None
         for f in files:
             data = f.read_bytes()
+            if providers is not None:
+                findings += missing_providers(str(f), data, providers, label)
             if "SSB210" not in ignore:
                 for s in sites(data):
                     if s.dynamic:
@@ -940,6 +972,7 @@ Why did a job or nightly load fail? Read-only, in this order (each step's output
                                               running: X, failed at X, stopped after X; a `why` is the answer
   2. history --env ENV "JOB" --runs 1         the failed step and its execution id (earlier night: --runs 5)
   3. executions --env ENV --id N              the failing task, its error and what it runs
+  slow, not failed: history --runs 10 marks a step `slower`; slow --env ENV --id N names the tasks
 
 Every deploy runs twice: first without --apply (prints a plan with checks and a
 plan_id; exit 0 means it can be applied), then the same command with
@@ -955,7 +988,7 @@ tell the developer.
 Someone else working on a package or a linked one (activity, or an others_working warning
 in a plan) is information, not a block: deploy when the developer asked for it, and tell them who
 is working where.
-Read-only: inspect, versions, outline, jobs, chain, history, executions, health, activity, strays.
+Read-only: inspect, versions, outline, jobs, chain, history, executions, slow, health, activity, strays.
 executions --failed lists only failures, of any night: it misses a job still running or a step that
 never started, so an empty list does not mean the load is fine; start from chain.
 """
@@ -1012,6 +1045,17 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--max-messages", type=int, default=5, help="error messages per task")
     s.add_argument("--no-details", action="store_true", help="skip messages and task details")
     s.set_defaults(fn=cmd_executions)
+
+    what = ("which tasks made a package run slower than usual: each task's time against its median over "
+            "earlier successful runs, with row counts when the runs logged them")
+    s = sub.add_parser("slow", help=what, description=what + ". Read-only. Task times need logging level Basic "
+                       "or higher; row counts Performance or Verbose.")
+    target(s, required=False)
+    s.add_argument("--id", type=int, help="the run to explain (the 'Execution ID' in job history); default: the "
+                                           "package's newest finished run")
+    s.add_argument("--package", help="the package, when no --id is given")
+    s.add_argument("--runs", type=int, default=20, help="runs to compare with (default 20)")
+    s.set_defaults(fn=cmd_slow)
 
     what = ("catalog health: log retention and cleanup, SSISDB size and log, logging level, executions stuck "
             "as running; each warning with the T-SQL fix for the DBA")
