@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 
 import sqlglot
 from sqlglot import exp
 
 from .outline import flatten, outline
-from .sqlformat import format_sql, tokenize
+from .sqlformat import CACHED, format_sql, tokenize
 from .sqlsites import Site, sites
 
 RULES = {
@@ -113,37 +114,7 @@ def lint_sql(file: str, site: Site, max_line: int = 120) -> list[Finding]:
             out.append(Finding("SSB103", "error", file, site.task, site.path, 1, 1,
                                "results are bound to variables but ResultSet is None", "set ResultSet to SingleRow or Full"))
 
-    # SQL correctness, by sqlglot
-    try:
-        trees = [t for t in sqlglot.parse(re.sub(r"(?im)^\s*GO(\s+\d+)?\s*$", ";", sql), dialect="tsql") if t is not None]
-    except Exception as e:   # noqa: BLE001
-        errs = getattr(e, "errors", None) or [{}]
-        line, col = errs[0].get("line") or 1, errs[0].get("col") or 1
-        msg = str(e).splitlines()[0][:160]
-        out.append(_f("SSB201", file, site, line, col, f"ssisbliss's parser could not read it ({msg}); the SQL may well "
-                      "be valid, and the table and readability rules still ran", "the server's parser decides: `ssisbliss lint --env ENV`"))
-        trees = []
-    for tree in trees:
-        for node in tree.walk():
-            if isinstance(node, (exp.Delete, exp.Update)) and not node.args.get("where"):
-                line, col = _first(sql, r"\b(DELETE|UPDATE)\b")
-                out.append(_f("SSB202", file, site, line, col, f"{type(node).__name__.upper()} without WHERE affects every row",
-                              "add a WHERE clause, or use TRUNCATE TABLE if emptying the table is the point"))
-            if isinstance(node, exp.Select) and not isinstance(node.parent, exp.Exists) and any(
-                    isinstance(e, exp.Star) or isinstance(e, exp.Column) and isinstance(e.this, exp.Star)
-                    for e in node.expressions):
-                line, col = _first(sql, r"\*")
-                out.append(_f("SSB203", file, site, line, col, "SELECT * " + ("in a data-flow source: a column change "
-                              "breaks the flow's metadata" if site.kind == "dataflow" else "hides which columns are used"),
-                              "list the columns"))
-            if isinstance(node, exp.Insert) and isinstance(node.this, exp.Table) and node.args.get("expression") is not None:
-                line, col = _first(sql, r"\bINSERT\b")
-                out.append(_f("SSB205", file, site, line, col, "INSERT without a column list depends on the table's column order",
-                              "name the columns: INSERT INTO t (a, b) ..."))
-            if isinstance(node, exp.Table) and node.args.get("catalog"):
-                line, col = _first(sql, re.escape(node.args["catalog"].name))
-                out.append(_f("SSB206", file, site, line, col, f"database {node.args['catalog'].name} is hard-coded",
-                              "use the connection's database (or a project parameter) so the package works in every environment"))
+    out += [_f(rule, file, site, *found) for rule, *found in _sql_checks(sql, site.kind)]
     for t in tokens:
         if t.kind == "word" and t.upper in ("NOLOCK", "READUNCOMMITTED"):
             line, col = _pos(sql, t.start)
@@ -165,6 +136,44 @@ def lint_sql(file: str, site: Site, max_line: int = 120) -> list[Finding]:
             out.append(_f("SSB303", file, site, n, max_line + 1, f"line {n} is {len(line)} characters (limit {max_line})",
                           "split long expressions or lists by hand"))
     return out
+
+
+@lru_cache(maxsize=CACHED)
+def _sql_checks(sql: str, kind: str) -> tuple[tuple[str, int, int, str, str], ...]:
+    """SQL correctness, by sqlglot: (rule, line, column, message, hint). Parsing is lint's slowest step, so a
+    statement that repeats is parsed once."""
+    out: list[tuple[str, int, int, str, str]] = []
+    try:
+        trees = [t for t in sqlglot.parse(re.sub(r"(?im)^\s*GO(\s+\d+)?\s*$", ";", sql), dialect="tsql") if t is not None]
+    except Exception as e:   # noqa: BLE001
+        errs = getattr(e, "errors", None) or [{}]
+        line, col = errs[0].get("line") or 1, errs[0].get("col") or 1
+        msg = str(e).splitlines()[0][:160]
+        out.append(("SSB201", line, col, f"ssisbliss's parser could not read it ({msg}); the SQL may well "
+                    "be valid, and the table and readability rules still ran", "the server's parser decides: `ssisbliss lint --env ENV`"))
+        trees = []
+    for tree in trees:
+        for node in tree.walk():
+            if isinstance(node, (exp.Delete, exp.Update)) and not node.args.get("where"):
+                line, col = _first(sql, r"\b(DELETE|UPDATE)\b")
+                out.append(("SSB202", line, col, f"{type(node).__name__.upper()} without WHERE affects every row",
+                            "add a WHERE clause, or use TRUNCATE TABLE if emptying the table is the point"))
+            if isinstance(node, exp.Select) and not isinstance(node.parent, exp.Exists) and any(
+                    isinstance(e, exp.Star) or isinstance(e, exp.Column) and isinstance(e.this, exp.Star)
+                    for e in node.expressions):
+                line, col = _first(sql, r"\*")
+                out.append(("SSB203", line, col, "SELECT * " + ("in a data-flow source: a column change "
+                            "breaks the flow's metadata" if kind == "dataflow" else "hides which columns are used"),
+                            "list the columns"))
+            if isinstance(node, exp.Insert) and isinstance(node.this, exp.Table) and node.args.get("expression") is not None:
+                line, col = _first(sql, r"\bINSERT\b")
+                out.append(("SSB205", line, col, "INSERT without a column list depends on the table's column order",
+                            "name the columns: INSERT INTO t (a, b) ..."))
+            if isinstance(node, exp.Table) and node.args.get("catalog"):
+                line, col = _first(sql, re.escape(node.args["catalog"].name))
+                out.append(("SSB206", line, col, f"database {node.args['catalog'].name} is hard-coded",
+                            "use the connection's database (or a project parameter) so the package works in every environment"))
+    return tuple(out)
 
 
 def _first(sql: str, pattern: str) -> tuple[int, int]:
