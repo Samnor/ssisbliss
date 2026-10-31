@@ -118,7 +118,6 @@ class GitScan:
     prefix: str                     # the project folder, relative to the repository root ("" for the root)
     default: str | None             # e.g. origin/main
     me: str                         # your git user.email
-    current: str | None             # your branch
     branches: list[Branch] = field(default_factory=list)
     main_packages: dict[str, str] = field(default_factory=dict)   # name (lower) -> package_sha256 on the default branch
     main_names: dict[str, str] = field(default_factory=dict)      # name (lower) -> name as spelled on the default branch
@@ -153,7 +152,24 @@ class GitScan:
         return {"commit": sha, "author": author, "email": email, "date": date, "subject": subject}
 
 
-def _default_branch(root: Path) -> str | None:
+def _refs(root: Path) -> list[dict[str, str]]:
+    """Every local and remote branch, read by one `git for-each-ref`: its full and short name, commit, date,
+    what it points at when it is symbolic, its upstream, and "*" for the branch checked out here."""
+    keys = {"ref": "refname", "name": "refname:short", "sha": "objectname", "date": "committerdate:iso-strict",
+            "symref": "symref:short", "upstream": "upstream:short", "head": "HEAD"}
+    out = _git(root, "for-each-ref", "refs/heads", "refs/remotes", "--format=" + "%00".join(f"%({v})" for v in keys.values()))
+    return [dict(zip(keys, line.split("\x00"))) for line in (out or "").splitlines()]
+
+
+def _default_branch(root: Path, refs: list[dict[str, str]] = ()) -> str | None:
+    """origin/HEAD, else the first of the usual names. With refs, only a name that is not a branch takes more git."""
+    names = {r["name"] for r in refs}
+    head = next((r["symref"] for r in refs if r["ref"] == "refs/remotes/origin/HEAD" and r["symref"]), None)
+    if head:
+        return head
+    for ref in ("origin/main", "origin/master", "main", "master"):
+        if ref in names:
+            return ref
     head = _git(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     if head:
         return head
@@ -238,31 +254,35 @@ def _branch_changes(root: Path, default: str, sha: str, pathspec: list[str]) -> 
 def scan(directory: Path, fetch: bool = False) -> GitScan | None:
     """None when the folder is not in a git repository."""
     directory = directory.resolve()
-    top = _git(directory, "rev-parse", "--show-toplevel")
-    if not top:
+    out = _git(directory, "rev-parse", "--show-toplevel", "--show-prefix")
+    if not out:
         return None
+    top, _, prefix = out.rpartition("\n")
+    if not prefix.endswith("/"):                # at the top of the repository the prefix is empty
+        top, prefix = out, ""
     root = Path(top)
-    prefix = _git(directory, "rev-parse", "--show-prefix") or ""
     prefix = prefix.rstrip("/")
     fetched, note = False, ""
     if fetch:
         fetched = _git(root, "fetch", "--quiet", "--prune") is not None
         note = "" if fetched else "git fetch failed; using the remote branches as of the last fetch"
-    s = GitScan(root=root, prefix=prefix, default=_default_branch(root), me=(_git(root, "config", "user.email") or "").lower(),
-                current=_git(root, "rev-parse", "--abbrev-ref", "HEAD"), fetched=fetched, note=note, blobs=Blobs(root))
+    refs = _refs(root)
+    s = GitScan(root=root, prefix=prefix, default=_default_branch(root, refs), me=(_git(root, "config", "user.email") or "").lower(),
+                fetched=fetched, note=note, blobs=Blobs(root))
     if not s.default:
         s.note = (s.note + "; " if s.note else "") + "no default branch found (origin/HEAD, main or master)"
         return s
     main = _packages_at(root, s.default, prefix)
     s.main_names = {k: v[0] for k, v in main.items()}
     s.main_packages = {k: sha for k, (_, path) in main.items() if (sha := s.blobs.sha(s.default, path))}
-    upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-    default_sha = _git(root, "rev-parse", s.default)
-    refs = _git(root, "for-each-ref", "refs/remotes", "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)") or ""
+    upstream = next((r["upstream"] for r in refs if r["head"] == "*" and r["upstream"]), None)
+    default_sha = next((r["sha"] for r in refs if r["name"] == s.default), None) or _git(root, "rev-parse", s.default)
     pathspec = [f":(glob){prefix}/*.dtsx" if prefix else ":(glob)*.dtsx"]
     history = _history(root, s.default, prefix)
-    for line in refs.splitlines():
-        name, sha, date = line.split("\x00")
+    for r in refs:
+        name, sha, date = r["name"], r["sha"], r["date"]
+        if not r["ref"].startswith("refs/remotes/"):
+            continue
         if name.endswith("/HEAD") or name == s.default or sha == default_sha or "/" not in name:
             continue
         changes = _linear_changes(history, sha, prefix) if history is not None else None

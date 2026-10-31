@@ -64,9 +64,10 @@ package is deployed as that package (with a warning).
 ## Why did it fail?
 
 1. `ssisbliss chain --env prod` - where the job chain is: `completed`, `running: X`,
-   `failed at X`, or `stopped after X` (with `why` when a step quits early). Running is not failing:
-   with `running: X`, report its `why` and stop; there is no error or execution to look up yet.
-2. `ssisbliss history --env prod "JOB NAME" --runs 1` - the failed step and its
+   `failed at X`, or `stopped after X` (with `why` when a step quits early). A `why` is the answer:
+   report it, with the job and step names it gives, and stop; `history` lists only the steps that ran.
+   Running is not failing: with `running: X` there is no error or execution to look up yet.
+2. `ssisbliss history --env prod "JOB NAME" --runs 1` (the chain's `next`) - the failed step and its
    `next` command (`ssisbliss executions --id N`). A failure on an earlier night: `--runs 5`,
    find the run on that date. A step with a `hint` and no execution never started (e.g. the
    package was renamed): run its `next` (`ssisbliss inspect ...`) and compare the names.

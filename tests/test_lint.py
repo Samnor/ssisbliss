@@ -15,6 +15,26 @@ from ssisbliss.ssis.sqlsites import sites
 CONN = "{00000000-0000-0000-0000-000000000001}"
 
 
+def test_a_repeated_statement_is_parsed_once_and_each_task_still_gets_its_findings(monkeypatch):
+    import sqlglot
+
+    from ssisbliss.ssis import lint
+    calls = []
+    parse = sqlglot.parse
+    monkeypatch.setattr(lint.sqlglot, "parse", lambda *a, **k: calls.append(a) or parse(*a, **k))
+    lint._sql_checks.cache_clear()
+    sql = "delete from stage.RepeatedOnce"
+    found = lint_package("p.dtsx", pkg("p", [("Empty one", sql), ("Empty two", sql), ("Empty three", sql)]))
+    assert len(calls) == 1
+    assert [f.task for f in found if f.rule == "SSB202"] == ["Empty one", "Empty three", "Empty two"]
+
+
+def test_the_same_select_star_keeps_the_message_of_its_kind_of_task():
+    from ssisbliss.ssis.lint import _sql_checks
+    task, flow = _sql_checks("select * from stage.T", "execute_sql"), _sql_checks("select * from stage.T", "dataflow")
+    assert "hides which columns" in task[0][3] and "data-flow source" in flow[0][3]
+
+
 def pkg(name: str, tasks: list[tuple[str, str]], params: dict[str, int] | None = None, conn_type: str = "OLEDB",
         result: str = "ResultSetType_None") -> bytes:
     """A package with Execute SQL tasks (task name, SQL) on one connection manager."""

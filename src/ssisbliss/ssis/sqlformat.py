@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 INDENT = "    "
+CACHED = 4096     # statements remembered: lint reads each text several times, and packages repeat statements
 
 # Reserved keywords (Transact-SQL reserved keywords, SQL Server 2019) that are uppercased.
 RESERVED = set("""
@@ -70,7 +72,9 @@ class Token:
         return self.kind == "word" and self.upper in RESERVED
 
 
+@lru_cache(maxsize=CACHED)
 def tokenize(sql: str) -> list[Token]:
+    """The tokens of sql. The list is shared between callers, so nobody may change it."""
     tokens: list[Token] = []
     pos, space, newline = 0, True, True
     while pos < len(sql):
@@ -321,6 +325,7 @@ def layout(tokens: list[Token]) -> str:
     return out.text()
 
 
+@lru_cache(maxsize=CACHED)
 def format_sql(sql: str) -> tuple[str, str]:
     """(formatted, "") or (sql unchanged, reason)."""
     if not sql.strip():

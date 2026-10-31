@@ -38,6 +38,44 @@ def test_sql_tables_reads_and_writes():
     assert sql_tables("EXEC dbo.LoadCdw @Mode = ?")[:2] == (set(), set())
 
 
+def test_sql_tables_work_out_each_text_once(monkeypatch):
+    import sqlglot
+    sql = "INSERT stage.OnlyHere SELECT * FROM bronze.OnlyHere"
+    sql_tables.cache_clear()
+    first = sql_tables(sql)
+    monkeypatch.setattr(sqlglot, "parse", lambda *a, **k: pytest.fail("parsed the same text twice"))
+    assert sql_tables(sql) == first == ({"bronze.onlyhere"}, {"stage.onlyhere"}, True)
+
+
+def test_activity_does_not_read_a_server_package_your_copy_replaces(monkeypatch):
+    from ssisbliss.ssis import activity as mod
+    from ssisbliss.ssis.fake import ispac
+    from ssisbliss.ssis.ispac import Ispac
+    from ssisbliss.ssis.dtsx import package_sha256
+    server = Ispac(ispac("P", {"Stage_Customer.dtsx": RELEASED["Stage_Customer.dtsx"], "Main.dtsx": RELEASED["Main.dtsx"]}))
+    read = []
+    real = mod.deps.facts
+    monkeypatch.setattr(mod.deps, "facts", lambda n, d: read.append((n, d)) or real(n, d))
+    theirs = task_package("Stage_Customer.dtsx", sql=["INSERT stage.Mine SELECT * FROM bronze.Mine"])
+    found = mod.Activity(None, server=server, local={"stage_customer.dtsx": theirs}).facts()
+    # your copy counts under the deployed spelling; only the package you do not have comes from the server
+    assert read == [("Main.dtsx", RELEASED["Main.dtsx"]), ("Stage_Customer.dtsx", theirs)]
+    assert list(found) == ["Main.dtsx", "Stage_Customer.dtsx"]
+    assert found["Stage_Customer.dtsx"].writes == {"stage.mine"}
+    assert found["Stage_Customer.dtsx"].package == "Stage_Customer.dtsx"
+    assert server.package_hashes()["Main.dtsx"] == package_sha256(RELEASED["Main.dtsx"])
+
+
+def test_package_hashes_are_worked_out_once_and_a_caller_cannot_change_them(monkeypatch):
+    from ssisbliss.ssis import ispac as mod
+    from ssisbliss.ssis.fake import ispac
+    server = mod.Ispac(ispac("P", {"Main.dtsx": RELEASED["Main.dtsx"]}))
+    first = server.package_hashes()
+    first["Main.dtsx"] = "changed by a caller"
+    monkeypatch.setattr(mod, "package_sha256", lambda d: pytest.fail("hashed the same project twice"))
+    assert server.package_hashes()["Main.dtsx"] != "changed by a caller"
+
+
 def test_related_follows_calls_and_tables():
     all_facts = {n: facts(n, d) for n, d in RELEASED.items()}
     depends, used = related("Stage_Customer.dtsx", all_facts)
@@ -247,6 +285,63 @@ def _slow_scan(monkeypatch, gitscan, w):
     with monkeypatch.context() as m:
         m.setattr(gitscan, "_history", lambda *a: None)
         return gitscan.scan(w.work / "STAGE")
+
+
+def _old_facts(gitscan, directory):
+    """The repository facts as separate git calls would give them, to hold the shared reads against."""
+    git = lambda *a: gitscan._git(directory, *a)   # noqa: E731
+    top = git("rev-parse", "--show-toplevel")
+    default = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    for ref in ("origin/main", "origin/master", "main", "master"):
+        default = default or (ref if git("rev-parse", "--verify", "--quiet", ref) else None)
+    return (Path(top), (git("rev-parse", "--show-prefix") or "").rstrip("/"), default,
+            git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"))
+
+
+@pytest.mark.parametrize("state", ["origin_head", "no_origin_head", "other_branch", "detached", "worktree", "top"])
+def test_scan_reads_repository_facts_in_one_go_and_finds_what_separate_calls_do(tmp_path, monkeypatch, state):
+    from ssisbliss.ssis import gitscan
+    w = sql_world(tmp_path / "w")
+    w.colleague_branch("pr/plain", "Bob", {"Stage_Customer.dtsx": task_package("Stage_Customer.dtsx", revision=7)})
+    repo = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(w.root / "origin.git"), str(repo)], check=True, capture_output=True)
+    g = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)   # noqa: E731
+    directory = repo / "STAGE"
+    if state == "no_origin_head":
+        g("remote", "set-head", "origin", "--delete")
+    elif state == "other_branch":
+        g("checkout", "-q", "-b", "mine", "--track", "origin/pr/plain")
+    elif state == "detached":
+        g("checkout", "-q", "--detach")
+    elif state == "worktree":
+        g("worktree", "add", "-q", "-b", "wt", str(tmp_path / "wt"), "origin/pr/plain")
+        g("branch", "--set-upstream-to=origin/pr/plain", "wt")
+        directory = tmp_path / "wt" / "STAGE"
+    elif state == "top":
+        directory = repo
+    root, prefix, default, upstream = _old_facts(gitscan, directory)
+
+    calls = []
+    real = gitscan._git_bytes
+    monkeypatch.setattr(gitscan, "_git_bytes", lambda cwd, *a: calls.append(a) or real(cwd, *a))
+    s = gitscan.scan(directory)
+    assert (s.root, s.prefix, s.default) == (root, prefix, default)
+    assert [c[0] for c in calls].count("rev-parse") == 1 and "symbolic-ref" not in [c[0] for c in calls]
+    assert sorted(c[0] for c in calls) == ["config", "for-each-ref", "log", "ls-tree", "rev-parse"]
+    if state == "top":                     # the packages are in STAGE/, so at the top no branch changes one
+        assert s.branches == []
+    else:
+        assert [b.yours for b in s.branches if b.name == "origin/pr/plain"] == [upstream == "origin/pr/plain"]
+
+
+def test_scan_without_a_branch_called_main_still_finds_nothing_or_a_tag(tmp_path):
+    from ssisbliss.ssis import gitscan
+    g = lambda *a: subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)   # noqa: E731
+    g("init", "-q", "-b", "trunk")
+    assert gitscan.scan(tmp_path).default is None and "no default branch" in gitscan.scan(tmp_path).note
+    g("-c", "user.email=a@example.com", "-c", "user.name=A", "commit", "-q", "--allow-empty", "-m", "one")
+    g("tag", "main")
+    assert gitscan.scan(tmp_path).default == "main"
 
 
 def test_blobs_reads_files_at_revisions_through_one_git_process(tmp_path, monkeypatch):

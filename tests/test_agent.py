@@ -100,6 +100,8 @@ def test_chain_stopped_by_a_step_that_quits_on_success():
     [c] = chains(views)
     assert c["verdict"] == "stopped after 1 A: 2 B did not start"
     assert "step 1 (step 1) is set to 'quit reporting success'" in c["why"]
+    assert "the whole cause" in c["why"] and "so that step 2 (step 2) runs" in c["why"]
+    assert "next" not in c
 
 
 def test_go_to_step_actions_are_followed():
@@ -152,7 +154,8 @@ def test_cli_with_fake_msdb(tmp_path, capsys):
                                  "history": [{**h, "job": "2 B"} for h in HISTORY]}))
     srv = ["--server", f"fake://{state}"]
     assert cli.main(["chain", *srv]) == 0
-    assert json.loads(capsys.readouterr().out)["chains"][0]["verdict"] == "failed at 2 B"
+    [c] = json.loads(capsys.readouterr().out)["chains"]
+    assert c["verdict"] == "failed at 2 B" and c["next"] == f'ssisbliss history --server "fake://{state}" "2 B" --runs 1'
     assert cli.main(["jobs", *srv, "--failed", "--brief"]) == 0
     [failed] = json.loads(capsys.readouterr().out)["jobs"]
     assert failed["name"] == "2 B" and failed["next"] == 'ssisbliss history "2 B" --runs 1'
@@ -160,6 +163,17 @@ def test_cli_with_fake_msdb(tmp_path, capsys):
     assert len(json.loads(capsys.readouterr().out)["runs"]) == 1
     assert cli.main(["history", *srv, "B"]) == 2
     assert "did you mean: 2 B" in json.loads(capsys.readouterr().out)["error"]
+
+
+def test_history_shows_a_step_that_a_successful_run_skips(tmp_path, capsys):
+    steps = [{**step("1 A", 1, SSIS_STEP, "SSIS"), "on_success_action": 1},
+             step("1 A", 2, "EXEC msdb.dbo.sp_start_job @job_name = N'2 B';")]
+    state = tmp_path / "msdb.json"
+    state.write_text(json.dumps({"server_name": "LAB\\SQL01", "jobs": [job("1 A", "2026-10-29T07:00:00")],
+                                 "steps": steps, "history": [{**h, "job": "1 A"} for h in HISTORY]}))
+    assert cli.main(["history", "--server", f"fake://{state}", "1 A", "--runs", "1"]) == 0
+    [skipped] = json.loads(capsys.readouterr().out)["skipped_starts"]
+    assert skipped["name"] == "step 2" and "never runs" in skipped["reason"]
 
 
 def test_history_names_a_package_the_catalog_cannot_find():
@@ -183,3 +197,15 @@ def test_troubleshooting_help_points_at_chain_first(capsys):
         text = " ".join(capsys.readouterr().out.split())
         assert "Start with `ssisbliss chain --env ENV`" in text
         assert "an empty list does not mean the load is fine" in text
+
+
+def test_top_level_help_gives_the_failure_path_in_order(capsys):
+    from ssisbliss.ssis.cli import main
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    path = text[text.index("Why did a job or nightly load fail?"):]
+    assert path.index("1. chain --env ENV") < path.index('2. history --env ENV "JOB" --runs 1') \
+        < path.index("3. executions --env ENV --id N")
+    assert "an empty list does not mean the load is fine; start from chain" in path
+    assert "use --env dev" in text

@@ -37,6 +37,7 @@ class Ispac:
         if MANIFEST not in self.parts:
             raise ValueError("not an .ispac: no @Project.manifest")
         self.manifest = ET.fromstring(self.parts[MANIFEST][1])
+        self._hashes: dict[str, str] | None = None
 
     @classmethod
     def from_file(cls, path) -> "Ispac":
@@ -59,7 +60,9 @@ class Ispac:
         return self.parts[name][1]
 
     def package_hashes(self) -> dict[str, str]:
-        return {n: package_sha256(self.package(n)) for n in self.package_names}
+        if self._hashes is None:     # an Ispac never changes (merging makes a new one), and a plan asks several times
+            self._hashes = {n: package_sha256(self.package(n)) for n in self.package_names}
+        return dict(self._hashes)
 
     @property
     def connection_manager_files(self) -> list[str]:

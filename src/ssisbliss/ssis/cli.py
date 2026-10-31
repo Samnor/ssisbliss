@@ -883,7 +883,8 @@ def cmd_rollback(a) -> int:
 # --------------------------------------------------------------------- main --
 
 RECIPES = """\
-Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT; folder and project may be left
+Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT; when the developer names no
+environment, use --env dev; a folder called STAGE is not the stage environment; folder and project may be left
 out: the project is the .dtproj's name, the folder your last one for it, both shown in target_from):
   Deploy Package (Load_B)      deploy-project T --dtproj X.dtproj --only Load_B
   Rebuild + Deploy Package     the same: --dtproj builds the project first
@@ -902,6 +903,12 @@ out: the project is the .dtproj's name, the folder your last one for it, both sh
    and a literal line break turns into a space when SSIS reads the file; format does it right)
   also deploy project params / connection managers   add --project-items update
 
+Why did a job or nightly load fail? Read-only, in this order (each step's output names the next):
+  1. chain --env ENV                          where the chain is, even when nothing failed: completed,
+                                              running: X, failed at X, stopped after X; a `why` is the answer
+  2. history --env ENV "JOB" --runs 1         the failed step and its execution id (earlier night: --runs 5)
+  3. executions --env ENV --id N              the failing task, its error and what it runs
+
 Every deploy runs twice: first without --apply (prints a plan with checks and a
 plan_id; exit 0 means it can be applied), then the same command with
 --apply --plan-id <plan_id> (and --confirm-env ENV where the environment asks for it).
@@ -916,7 +923,9 @@ tell the developer.
 Someone else working on a package or a linked one (activity, or an others_working warning
 in a plan) is information, not a block: deploy when the developer asked for it, and tell them who
 is working where.
-Read-only: inspect, versions, outline, executions (failed packages: executions --failed), activity, strays.
+Read-only: inspect, versions, outline, jobs, chain, history, executions, activity, strays.
+executions --failed lists only failures, of any night: it misses a job still running or a step that
+never started, so an empty list does not mean the load is fine; start from chain.
 """
 
 def parser() -> argparse.ArgumentParser:
