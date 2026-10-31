@@ -208,4 +208,4 @@ def test_top_level_help_gives_the_failure_path_in_order(capsys):
     assert path.index("1. chain --env ENV") < path.index('2. history --env ENV "JOB" --runs 1') \
         < path.index("3. executions --env ENV --id N")
     assert "an empty list does not mean the load is fine; start from chain" in path
-    assert "no environment named: dev" in text
+    assert "use --env dev" in text

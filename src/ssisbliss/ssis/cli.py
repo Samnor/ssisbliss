@@ -883,8 +883,8 @@ def cmd_rollback(a) -> int:
 # --------------------------------------------------------------------- main --
 
 RECIPES = """\
-Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT; no environment named: dev, a
-folder called STAGE is not the stage environment; folder and project may be left
+Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT; when the developer names no
+environment, use --env dev; a folder called STAGE is not the stage environment; folder and project may be left
 out: the project is the .dtproj's name, the folder your last one for it, both shown in target_from):
   Deploy Package (Load_B)      deploy-project T --dtproj X.dtproj --only Load_B
   Rebuild + Deploy Package     the same: --dtproj builds the project first
