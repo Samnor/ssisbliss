@@ -60,6 +60,7 @@ class Catalog(Protocol):
     def execution_events(self, execution_id: int, message_types: tuple[int, ...] = (120, 130)) -> list[dict]: ...
     def failed_executables(self, execution_id: int) -> list[dict]: ...
     def execution_parameters(self, execution_id: int) -> list[dict]: ...
+    def health_facts(self) -> dict: ...
 
 
 def package_table_name(name: str) -> str:
@@ -285,3 +286,42 @@ class SqlCatalog:
                              WHERE execution_id = ? AND object_type IN (20, 30)
                              ORDER BY object_type, parameter_name""", execution_id)
 
+    def health_facts(self) -> dict:
+        """What `health` judges: catalog properties, SSISDB size and recovery, operation log age, executions
+        still running or pending, and whether SSISDB's startup procedure cleans up after a restart. A part the
+        login may not read is left out (its key is missing), not guessed."""
+        import pyodbc
+
+        out: dict = {}
+        parts = {
+            "properties": "SELECT property_name, property_value FROM catalog.catalog_properties",
+            "files": "SELECT type_desc, SUM(CAST(size AS bigint)) * 8 / 1024 AS mb FROM sys.database_files GROUP BY type_desc",
+            "database": "SELECT recovery_model_desc, log_reuse_wait_desc FROM sys.databases WHERE name = DB_NAME()",
+            "operations": """SELECT COUNT_BIG(*) AS count, DATEDIFF(day, MIN(created_time), SYSDATETIMEOFFSET()) AS oldest_days
+                             FROM catalog.operations""",
+            "open_executions": """SELECT execution_id, folder_name, project_name, package_name, status, executed_as_name,
+                                         CONVERT(varchar(19), start_time, 126) AS start_time,
+                                         DATEDIFF(minute, ISNULL(start_time, created_time), SYSDATETIMEOFFSET()) AS minutes
+                                  FROM catalog.executions WHERE status IN (2, 5) ORDER BY execution_id""",
+            "startup_procedure": """SELECT COUNT(*) AS n FROM master.sys.procedures
+                                    WHERE name = N'sp_ssis_startup' AND is_auto_executed = 1""",
+        }
+        for key, sql in parts.items():
+            try:
+                rows = self._rows(sql)
+            except pyodbc.Error:
+                continue
+            if key == "properties":
+                out[key] = {r["property_name"]: r["property_value"] for r in rows}
+            elif key == "files":
+                out["data_mb"] = sum(r["mb"] for r in rows if r["type_desc"] == "ROWS")
+                out["log_mb"] = sum(r["mb"] for r in rows if r["type_desc"] == "LOG")
+            elif key == "database":
+                out["recovery_model"], out["log_reuse_wait"] = rows[0]["recovery_model_desc"], rows[0]["log_reuse_wait_desc"]
+            elif key == "operations":
+                out["operations"], out["oldest_operation_days"] = rows[0]["count"], rows[0]["oldest_days"]
+            elif key == "open_executions":
+                out[key] = rows
+            else:
+                out[key] = bool(rows[0]["n"])
+        return out

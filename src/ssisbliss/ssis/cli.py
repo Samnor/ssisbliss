@@ -265,6 +265,38 @@ def cmd_executions(a) -> int:
     return emit({"executions": report(cat, rows, details=not a.no_details, max_messages=a.max_messages)})
 
 
+def cmd_health(a) -> int:
+    from ..agent.cli import _source
+    from .health import CLEANUP_JOB, judge
+    cat = _catalog(_env(a), a)
+    facts = cat.health_facts()
+    try:
+        cleanup_job = next((j for j in _source(a).jobs() if j["name"] == CLEANUP_JOB), None)
+    except Exception:   # noqa: BLE001 - no msdb access: the cleanup job is not judged
+        cleanup_job = False
+    findings = judge(facts, cleanup_job, a.stuck_hours)
+    props = facts.get("properties", {})
+    doc = {"server": cat.server_info().server_name,
+           "verdict": f"{sum(f['severity'] == 'warning' for f in findings)} warning(s)"
+                      if any(f["severity"] == "warning" for f in findings) else "healthy",
+           "findings": findings,
+           "catalog": {"retention_days": props.get("RETENTION_WINDOW"),
+                       "operation_cleanup": props.get("OPERATION_CLEANUP_ENABLED"),
+                       "logging_level": props.get("SERVER_LOGGING_LEVEL"),
+                       "max_project_versions": props.get("MAX_PROJECT_VERSIONS"),
+                       **{k: facts[k] for k in ("data_mb", "log_mb", "recovery_model", "log_reuse_wait", "operations",
+                                                "oldest_operation_days") if k in facts},
+                       "open_executions": len(facts.get("open_executions", [])),
+                       "cleanup_job": "not readable" if cleanup_job is False else
+                                      "missing" if cleanup_job is None else
+                                      {"enabled": bool(cleanup_job.get("enabled")),
+                                       "last_start": cleanup_job.get("last_start")}}}
+    missing = [k for k in ("properties", "data_mb", "operations", "open_executions") if k not in facts]
+    if missing:
+        doc["not_checked"] = f"this login cannot read {', '.join(missing)} (needs ssis_admin or VIEW DATABASE STATE)"
+    return emit(doc)
+
+
 def cmd_status(a) -> int:
     """Each deployed package against your base record and your local file; deploys since your version."""
     env = _env(a)
@@ -923,7 +955,7 @@ tell the developer.
 Someone else working on a package or a linked one (activity, or an others_working warning
 in a plan) is information, not a block: deploy when the developer asked for it, and tell them who
 is working where.
-Read-only: inspect, versions, outline, jobs, chain, history, executions, activity, strays.
+Read-only: inspect, versions, outline, jobs, chain, history, executions, health, activity, strays.
 executions --failed lists only failures, of any night: it misses a job still running or a step that
 never started, so an empty list does not mean the load is fine; start from chain.
 """
@@ -980,6 +1012,13 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--max-messages", type=int, default=5, help="error messages per task")
     s.add_argument("--no-details", action="store_true", help="skip messages and task details")
     s.set_defaults(fn=cmd_executions)
+
+    what = ("catalog health: log retention and cleanup, SSISDB size and log, logging level, executions stuck "
+            "as running; each warning with the T-SQL fix for the DBA")
+    s = sub.add_parser("health", help=what, description=what + ". Read-only.")
+    target(s, project=False, required=False)
+    s.add_argument("--stuck-hours", type=float, default=24, help="an execution running this long is stuck")
+    s.set_defaults(fn=cmd_health)
 
     s = sub.add_parser("status", help="each deployed package against your version and your local file")
     target(s)

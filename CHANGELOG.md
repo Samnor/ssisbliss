@@ -12,6 +12,11 @@
   another SQL Server, deadlocks, timeouts and more, each with the usual fix.
 - `lint --env` compares every data flow source and destination with the server's tables (SSB401-405):
   a dropped or retyped column, a column that truncates, a new required column in the destination.
+- `jobs --check` finds job steps that will fail on their next run: a package renamed or removed by a
+  deploy, a `/Par` override for a parameter that is gone, an environment reference the project does
+  not have, a jump to a missing step.
+- `health`: catalog retention and cleanup, SSISDB size and log, the default logging level, executions
+  stuck as running after a restart; each warning with the T-SQL fix.
 
 ## 0.1.0 (2026-10-30)
 

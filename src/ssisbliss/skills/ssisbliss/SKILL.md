@@ -79,6 +79,11 @@ package is deployed as that package (with a warning).
    OLE DB wrapper; `run_as` the account the run used): report it, but say it is the likely cause.
 4. `ssisbliss outline --env prod --folder F --project P --package Pkg` - what the package does.
 
+Before a failure, or after a deploy that renamed or removed packages or parameters:
+`ssisbliss jobs --env prod --check --problems` lists job steps that will fail on their next run;
+`ssisbliss health --env prod` checks the catalog (log cleanup, SSISDB size, logging level None,
+executions stuck as running). Both are read-only: report their `fix` lines for the DBA, run none.
+
 Report the cause in the developer's terms: which job, which task, what failed, and what to change
 (a job step's `/Par` override, a read-only database, a script to run by hand on the server).
 Do not deploy or change anything while diagnosing.

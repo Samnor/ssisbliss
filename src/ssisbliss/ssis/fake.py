@@ -171,6 +171,7 @@ class FakeCatalog:
         self.execution_rows: list[dict] = []
         self.event_rows: dict[int, list[dict]] = {}
         self.failed_rows: dict[int, list[dict]] = {}
+        self.health: dict = {}   # health_facts() overrides (tests and climb worlds)
         self.parameter_rows: dict[int, list[dict]] = {}   # users with READ but no MODIFY (setup only, not persisted)
         self.path: Path | None = None
 
@@ -193,6 +194,7 @@ class FakeCatalog:
             c.projects[(fp.folder, fp.name)] = fp
         c.path = path
         c.scheduled = state.get("scheduled", [])
+        c.health = state.get("health", {})
         ex = state.get("executions", {})
         c.execution_rows = ex.get("rows", [])
         c.event_rows, c.failed_rows, c.parameter_rows = (
@@ -226,7 +228,7 @@ class FakeCatalog:
             projects.append(d)
         state = {"server_name": self.info.server_name, "major": self.info.major_version, "running": self.running,
                  "next_lsn": self.next_lsn, "folders": sorted(self.folders), "projects": projects,
-                 "calls": self.calls, "scheduled": self.scheduled,
+                 "calls": self.calls, "scheduled": self.scheduled, "health": self.health,
                  "executions": {"rows": self.execution_rows, "events": self.event_rows,
                                 "failed": self.failed_rows, "parameters": self.parameter_rows}}
         (path / "state.json").write_text(json.dumps(state, indent=2))
@@ -365,3 +367,14 @@ class FakeCatalog:
     def list_projects(self, folder: str | None) -> list[dict]:
         return [{"folder": p.folder, "project": p.name} for p in self.projects.values()
                 if folder in (None, p.folder)]
+
+    def health_facts(self) -> dict:
+        """A healthy catalog with SSISDB's defaults, changed by `health` in the state."""
+        facts = {"properties": {"RETENTION_WINDOW": "365", "OPERATION_CLEANUP_ENABLED": "True",
+                                "SERVER_LOGGING_LEVEL": "1", "MAX_PROJECT_VERSIONS": "10",
+                                "VERSION_CLEANUP_ENABLED": "True"},
+                 "data_mb": 512, "log_mb": 64, "recovery_model": "SIMPLE", "log_reuse_wait": "NOTHING",
+                 "operations": 1200, "oldest_operation_days": 300, "open_executions": [], "startup_procedure": True}
+        for k, v in self.health.items():
+            facts[k] = {**facts[k], **v} if isinstance(v, dict) else v
+        return facts

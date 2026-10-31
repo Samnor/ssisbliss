@@ -109,6 +109,14 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 f"{sorted(f['rule'] for f in d.get('changed', []))}; unchanged finds {len(d.get('in_step', []))}", raw)
     check("columns-server", columns_server)
 
+    def jobs_health_server():
+        raw = py("jobs-health-server.py")
+        d = first_json(raw)
+        return (bool(d.get("ok")), f"jobs --check finds {len(d.get('scratch_job', []))} broken steps in a scratch job; "
+                f"health: {[f['check'] for f in d.get('findings', [])]}, logging level None found: "
+                f"{'logging_level' in d.get('findings_with_level_none', [])}", raw)
+    check("jobs-health-server", jobs_health_server)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

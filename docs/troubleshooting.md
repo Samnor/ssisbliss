@@ -22,6 +22,7 @@ or `--server`, and use Windows authentication by default.
 | Command | Shows |
 |---|---|
 | `jobs [--name X] [--failed] [--running] [--brief]` | each job: enabled, running now, last run (outcome, duration, message), schedules, next run, and per step what it runs: the SSIS catalog package with its `/Par` overrides and environment reference, a file or msdb package, or the T-SQL; its `on_success` / `on_failure` action (`go to next step`, `quit reporting success`, ...); which jobs it starts and which jobs start it. `skipped_starts` (kept in `--brief`) lists steps that start a job but never run when the job succeeds, because an earlier step quits on success |
+| `jobs --check [--problems]` | each job step checked against the catalog it runs from: a package, folder or project that is not deployed (renamed or removed by a deploy, with the closest deployed names), a `/Par` override naming a parameter or connection manager the package or project no longer has, an `/ENVREFERENCE` the project does not have, and a step that jumps to a step that does not exist. Each is a `problem` on the job with the step and the fix; all of them fail the next run. A step on another server is a `note` (not checked). `--problems`: only jobs with problems |
 | `chain [--name X]` | job chains linked by `sp_start_job` steps, in order, each link's state in the current or last run (`succeeded`, `failed`, `running`, `not_started`) and a verdict: `completed`, `running: X`, `failed at X`, `stopped after X: Y did not start`. When a chain stopped because X's start-next step is skipped on success, `why` says which step quits the job. When a link is still running, `why` says nothing has failed (no error exists yet; `history` lists only finished runs) and gives its last run's duration (`last_run_took_s`) so an overrun shows. Steps that start a job that does not exist are listed as `missing_jobs` |
 | `history JOB [--runs N] [--failed]` | recent runs with every step's outcome and message; SSIS steps get their `ssis_execution_id`, failed ones the `ssisbliss executions --id` command; a step whose package was not found (renamed or removed by a deploy, so no execution exists) gets a `hint` and an `ssisbliss inspect` command; `skipped_starts` names a step that starts another job but never runs when the job succeeds, since runs list only the steps that ran |
 
@@ -93,3 +94,20 @@ connection managers with their expressions. Containers list their own tasks.
 Unit-tested with msdb/SSISDB rows and packages taken from the lab, and run against SQL
 Server 2019 (15.0.4470.1) in the lab: a chain broken by pointing STAGE at a read-only
 history database, a Python API call that fails, and a job with a `/Par` override.
+
+## Catalog health: `ssisbliss health`
+
+`health --env ENV` reads the catalog's settings and state and says what will break loads before it does,
+each warning with the T-SQL for the server's DBA (it changes nothing):
+
+| Check | Warns when |
+|---|---|
+| `logging_level` | the default logging level is None (a failed run records no error) or Verbose (fills SSISDB) |
+| `size`, `log` | SSISDB's data is 10 GB or more; its log is large and waits for a log backup under FULL recovery |
+| `cleanup`, `cleanup_job`, `cleanup_lag` | operation cleanup is off; the `SSIS Server Maintenance Job` is missing, disabled, unscheduled or failed last time; the oldest operation is older than the retention |
+| `stuck_execution` | an execution has been running or pending for `--stuck-hours` (24): usually a restart cut it off; the fix is `catalog.stop_operation` |
+| `startup_procedure` (info) | `sp_ssis_startup` is not a startup procedure, so a restart leaves executions "running" |
+
+`verdict` is `healthy` or the number of warnings; `catalog` has the numbers (retention, cleanup, logging
+level, sizes, recovery model, operation count and age, open executions, the cleanup job). Parts the login
+may not read are listed in `not_checked`.

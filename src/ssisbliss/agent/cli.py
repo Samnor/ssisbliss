@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from ..ssis.config import Environment, load_environment
+from .checks import step_problems
 from .source import SqlAgent
 from .status import chains, job_views, runs, skipped_starts
 
@@ -34,13 +35,16 @@ def emit(doc: dict, code: int = 0) -> int:
     return code
 
 
-def _source(a):
+def _environment(a) -> Environment:
     if a.env:
-        env = load_environment(a.env, Path(a.config) if a.config else None)
-    elif a.server:
-        env = Environment(name="", server=a.server)
-    else:
-        raise ValueError("give --env NAME or --server")
+        return load_environment(a.env, Path(a.config) if a.config else None)
+    if a.server:
+        return Environment(name="", server=a.server)
+    raise ValueError("give --env NAME or --server")
+
+
+def _source(a):
+    env = _environment(a)
     if env.server.startswith("fake://"):
         from .fake import FakeAgent
         from ..ssis.fake import fake_location
@@ -57,10 +61,23 @@ def cmd_jobs(a) -> int:
         views = [v for v in views if (v["last_run"] or {}).get("outcome") in ("failed", "canceled")]
     if a.running:
         views = [v for v in views if v["running"]]
+    doc: dict = {"server": src.server_name()}
+    if a.check:
+        from ..ssis.cli import _catalog
+        found = step_problems(src.steps(), _catalog(_environment(a), a), doc["server"])
+        for v in views:
+            if v["name"] in found:
+                v["problems"] = found[v["name"]]
+        errors = sum(p["severity"] == "error" for ps in found.values() for p in ps)
+        doc["checked"] = (f"{errors} step problem(s) that fail the next run" if errors else
+                          "every catalog step names a deployed package, parameter and environment reference")
+        if a.problems:
+            views = [v for v in views if "problems" in v]
     if a.brief:
         for v in views:
             v.pop("steps")
-    return emit({"server": src.server_name(), "jobs": views})
+    doc["jobs"] = views
+    return emit(doc)
 
 
 def cmd_chain(a) -> int:
@@ -111,6 +128,11 @@ def add_commands(sub) -> None:
     s.add_argument("--failed", action="store_true", help="only jobs whose last run failed or was canceled")
     s.add_argument("--running", action="store_true", help="only jobs running now")
     s.add_argument("--brief", action="store_true", help="leave out the steps")
+    s.add_argument("--check", action="store_true",
+                   help="check each SSIS step against the catalog: a package, folder, /Par parameter or environment "
+                        "reference that is not deployed (renamed or removed by a deploy) fails the next run; "
+                        "each job gets `problems`")
+    s.add_argument("--problems", action="store_true", help="with --check: only jobs with problems")
     s.set_defaults(fn=cmd_jobs)
 
     what = "job chains linked by sp_start_job and where the current run is"
