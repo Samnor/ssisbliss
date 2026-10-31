@@ -134,7 +134,9 @@ def _project_copy(tmp_path, variant="basic"):
 def _cli(monkeypatch, capsys, cat, *argv):
     import json
     from ssisbliss.ssis import cli
-    monkeypatch.setattr(cli, "_catalog", lambda env, a: cat)
+    from ssisbliss.ssis.commands import common, deploys, read
+    for module in (common, deploys, read):   # each command module imports _catalog
+        monkeypatch.setattr(module, "_catalog", lambda env, a: cat)
     code = cli.main(list(argv))
     return code, json.loads(capsys.readouterr().out)
 

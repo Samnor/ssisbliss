@@ -302,7 +302,9 @@ def test_rollback_to_unknown_version_is_refused(cat):
 # -------------------------------------------------------------------- cli --
 
 def run_cli(monkeypatch, capsys, cat, *argv):
-    monkeypatch.setattr(cli, "_catalog", lambda env, a: cat)
+    from ssisbliss.ssis.commands import common, deploys, read
+    for module in (common, deploys, read):   # each command module imports _catalog
+        monkeypatch.setattr(module, "_catalog", lambda env, a: cat)
     code = cli.main(["--help"] if not argv else list(argv))
     return code, json.loads(capsys.readouterr().out)
 
@@ -814,8 +816,23 @@ def test_a_refused_plan_starts_with_why(cat, tmp_path, monkeypatch, capsys):
     cat.someone_else_deploys(F, P, "Load_A.dtsx", dtsx("Load_A.dtsx", revision=8))
     (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=2))
     code, plan = run_cli(monkeypatch, capsys, cat, "deploy-packages", *t, str(tmp_path / "Load_A.dtsx"))
-    assert code == EXIT_REFUSED and next(iter(plan)) == "refused_because"
-    assert "LAB\\bob" in plan["refused_because"][0]
+    assert code == EXIT_REFUSED and list(plan)[:3] == ["ok", "error_kind", "refused_because"]
+    assert "LAB\\bob" in plan["refused_because"][0] and "next" not in plan
+
+
+def test_a_plan_says_how_to_apply_it(cat, tmp_path, monkeypatch, capsys):
+    t = ["--server", "x", "--folder", F, "--project", P]
+    run_cli(monkeypatch, capsys, cat, "pull", *t, "--out", str(tmp_path))
+    (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=2))
+    deploy = ["deploy-packages", *t, str(tmp_path / "Load_A.dtsx")]
+    code, plan = run_cli(monkeypatch, capsys, cat, *deploy)
+    assert code == EXIT_OK and plan["ok"] and "asked for this change" in plan["apply_when"]
+    assert plan["next"] == [f"ssisbliss deploy-packages --server x --folder {F} --project {P} "
+                            f"{tmp_path / 'Load_A.dtsx'} --apply --plan-id {plan['plan_id']}"]
+    code, out = run_cli(monkeypatch, capsys, cat, *deploy, "--apply")   # forgot the plan id
+    assert code == EXIT_REFUSED and out["error_kind"] == "refused" and out["next"] == plan["next"]
+    code, out = run_cli(monkeypatch, capsys, cat, *deploy, "--apply", "--plan-id", plan["plan_id"])
+    assert code == EXIT_OK and out["ok"] and "next" not in out
 
 
 def test_install_skill_for_copilot_and_vs_code(tmp_path, monkeypatch, capsys):

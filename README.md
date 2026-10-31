@@ -20,8 +20,10 @@ default, explicit plans, JSON output, and checks that refuse the dangerous cases
 | [`ssisbliss lint` / `format` / `sql-diff`](docs/lint.md) | Lint packages and their SQL; lay the SQL out readably (only whitespace and keyword case change); the SQL changes as a readable diff for a pull request, where git shows each statement as one long line |
 | [`ssisbliss jobs` / `chain` / `history`](docs/troubleshooting.md) | SQL Agent jobs and job chains: where the nightly chain is or where it broke, run history linked to SSIS executions |
 
-How well AI agents (Claude Sonnet and Haiku, Codex with GPT Luna) use the tools, with and without the
-included skill: [docs/agent-evaluation.md](docs/agent-evaluation.md).
+Agents can use the tools through a shell (with the included skill, or `ssisbliss guide` and `ssisbliss
+commands` without it) or as MCP tools (`ssisbliss mcp`); every command keeps one JSON output contract with
+`ok`, `error_kind` and `next`: [docs/agents.md](docs/agents.md). How well AI agents (Claude Sonnet and Haiku,
+Codex with GPT Luna) use them: [docs/agent-evaluation.md](docs/agent-evaluation.md).
 
 ## Lab
 

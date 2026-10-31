@@ -3,7 +3,7 @@
 
 Each iteration: an agent reads the latest scorecards and transcripts and makes ONE focused change to
 the tools or the skill; tests must pass; every scenario is run again with every field agent; the change
-is kept (committed) if the total over all agents rose by at least --min-gain with no more safety
+is kept (committed) if the average score per run rose by at least --min-gain with no more safety
 violations, otherwise reverted. Speed and scale are measured too (climb/perf.py: deterministic
 benchmarks at real sizes): a change that makes a benchmark clearly slower is reverted whatever the
 agents scored, and a change that makes one clearly faster is kept if the agents did not get worse
@@ -12,10 +12,12 @@ A change that is clearly faster and leaves the output of every command the agent
 (climb/sameoutput.py) is kept without agent runs: the agents cannot have scored differently.
 Every proposal's diff is saved as iter-N.patch, kept or not. Runs on a climb/ branch.
 
-The field agents default to the small models the tools are built for, with and without the skill:
-claude:haiku+skill, codex:gpt-6-luna+skill and claude:haiku. A change has to help them together.
+The field agents default to the small models the tools are built for, with and without the skill, and
+over MCP: claude:haiku+skill, codex:gpt-6-luna+skill, claude:haiku and claude:haiku+mcp. A change has to
+help them together. Each scenario runs twice per agent by default: one run moves a total by about as much
+as a typical change does.
 
-    uv run python climb/climb.py --iterations 5 [--agents ...] [--repeats 1] [--suite lint] [--proposer opus]
+    uv run python climb/climb.py --iterations 5 [--agents ...] [--repeats 2] [--suite lint] [--proposer opus]
 """
 from __future__ import annotations
 
@@ -40,9 +42,9 @@ from run import run_suite  # noqa: E402
 # (which the graders read) are off limits, so the score can only move by changing the tools or the skill.
 ALLOWED = ("src/ssisbliss/", "docs/", "README.md", "tests/test_ssis_deploy.py", "tests/test_agent.py",
            "tests/test_outline_executions.py", "tests/test_build.py", "tests/test_activity.py", "tests/test_lint.py",
-           "tests/test_sqlformat.py")
+           "tests/test_sqlformat.py", "tests/test_contract.py")
 FORBIDDEN = ("src/ssisbliss/ssis/fake.py", "src/ssisbliss/agent/fake.py")
-DEFAULT_AGENTS = "claude:haiku+skill,codex:gpt-6-luna+skill,claude:haiku"
+DEFAULT_AGENTS = "claude:haiku+skill,codex:gpt-6-luna+skill,claude:haiku,claude:haiku+mcp"
 
 PROPOSE = """You are improving ssisbliss, a command-line tool for SSIS packages and SQL Server SSIS catalogs that
 developers and LLM agents use, and the ssisbliss skill (src/ssisbliss/skills/ssisbliss/SKILL.md) that teaches
@@ -51,9 +53,14 @@ agents to use it. One command, `ssisbliss`, covers:
   (plan first, apply with the plan's id; never overwrite a colleague's work);
 - team work: activity (who else works on a package or a linked one), strays (packages nobody has);
 - reviewing: lint, format (SQL laid out readably), sql-diff (SQL changes for a pull request);
-- troubleshooting, read-only: jobs, chain, history (SQL Agent), executions, outline.
+- troubleshooting, read-only: jobs, chain, history (SQL Agent), executions, slow, health, outline;
+- about itself, for agents without the skill: guide (the skill's rules and recipes), commands (every command and
+  option as JSON); `ssisbliss mcp` serves every command as an MCP tool.
+Every command keeps one output contract (src/ssisbliss/ssis/contract.py): one JSON document, `ok`, `error_kind`
+when it is false, and `next` (what to run next). Keep it; improve what goes into it.
 
-Field scenarios were just run: each field agent (a small model, some with the skill installed, some without)
+Field scenarios were just run: each field agent (a small model, some with the skill installed, some without,
+one through the MCP server instead of the shell)
 got a developer's request and used the tool against fake dev/stage/prod servers and a git repository. Results
 per agent and scenario:
 
@@ -69,15 +76,15 @@ Speed and scale (deterministic benchmarks at real sizes: a 1.2 MB package with 2
 
 Make ONE focused change that would make these agents reach the right outcome more often, in fewer steps, or
 explain it better to the developer; or that makes the tool clearly faster at scale (fewer git processes,
-less repeated parsing or hashing, fewer server round trips) without changing what it reports. Look for patterns across agents and scenarios, not one lucky run (one run per
-scenario is noisy). Good targets: an error or check message that agents misread, guidance that is missing where
+less repeated parsing or hashing, fewer server round trips) without changing what it reports. Look for patterns across agents and scenarios, not one lucky run (even two runs per
+scenario are noisy). Good targets: an error or check message that agents misread, guidance that is missing where
 agents look (command output, --help, the skill), a missing option that forced a workaround, output that is hard
 to act on, the skill's description (what makes an agent load it) or its task table.
 
 Rules:
 - Only edit files under src/ssisbliss/ (not ssis/fake.py or agent/fake.py), docs/, README.md and the tests
   named in this list: tests/test_ssis_deploy.py, test_agent.py, test_outline_executions.py, test_build.py,
-  test_activity.py, test_lint.py, test_sqlformat.py.
+  test_activity.py, test_lint.py, test_sqlformat.py, test_contract.py.
 - Never weaken a safety check: refusing to overwrite others' work, prod rules, plan_id, running executions,
   protection level, rollback over others' deploys, stray checks, and format's rule that only whitespace and
   keyword case may change, must stay at least as strict. Troubleshooting and lint stay read-only.
@@ -137,7 +144,7 @@ def measure(out: Path, a) -> dict:
 
 
 # A clearly faster change whose agents scored up to this many --min-gain below the best is run once more
-# and judged on the average (one run of 132 scenarios moves by about 200 points on noise alone).
+# and judged on the average (one run of 144 scenarios moved by about 1.4 points per run on noise alone).
 RECHECK = 6
 
 
@@ -154,11 +161,12 @@ def decide(new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: flo
         return False, "more safety violations"
     if worse:
         return False, "slower: " + "; ".join(worse)
-    if new["total"] >= best["total"] + min_gain:
+    gain = new["total"] / max(1, new["runs"]) - best["total"] / max(1, best["runs"])   # per run: suites grow
+    if gain >= min_gain:
         return True, "agents did better" + (" and faster: " + "; ".join(faster) if faster else "")
-    if faster and new["total"] >= best["total"] - 2 * min_gain:
+    if faster and gain >= -2 * min_gain:
         return True, "faster, agents no worse (within noise): " + "; ".join(faster)
-    if faster and new["total"] >= best["total"] - RECHECK * min_gain:
+    if faster and gain >= -RECHECK * min_gain:
         return False, "recheck"
     return False, "not enough better"
 
@@ -194,14 +202,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--iterations", type=int, default=3)
     p.add_argument("--agents", default=DEFAULT_AGENTS, help="field agents, comma separated (see matrix.py)")
-    p.add_argument("--repeats", type=int, default=1, help="runs per scenario per agent per evaluation")
-    p.add_argument("--min-gain", type=float, default=50,
-                   help="points the total must rise by to keep a change (one scenario is 100): noise control")
+    p.add_argument("--repeats", type=int, default=2, help="runs per scenario per agent per evaluation")
+    p.add_argument("--min-gain", type=float, default=0.35,
+                   help="points the average score per run (out of 100) must rise by to keep a change: noise control")
     p.add_argument("--proposer", default="opus", help="model proposing tool changes")
     p.add_argument("--jobs", type=int, default=6)
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
     p.add_argument("--baseline", help="existing climb evaluation dir (with matrix.json) to use as the baseline")
-    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint"], help="only this scenario suite")
+    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "field"], help="only this scenario suite")
     p.add_argument("--perf-repeat", type=int, default=3, help="runs per speed benchmark (median)")
     p.add_argument("--history", action="append", default=[], metavar="LOG",
                    help="log.md of an earlier climb, so the proposer knows what was tried (repeatable)")

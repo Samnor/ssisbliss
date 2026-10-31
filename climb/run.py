@@ -38,6 +38,22 @@ TOOLS = ["Bash(ssisbliss:*)", "Bash(ssisbliss:*)", "Bash(git:*)", "Bash(ls:*)", 
 OUTCOME_POINTS, STEP_COST, MAX_STEP_PENALTY = 100, 2, 40
 
 
+MCP_PREFIX = "mcp__ssisbliss__"
+SYSTEM_MCP = SYSTEM.replace("The ssisbliss CLI is installed for SSIS catalog work and ssisbliss for SQL Server Agent jobs; run\n"
+                            "`ssisbliss --help` / `ssisbliss --help` to learn them.",
+                            "The ssisbliss tools (MCP) are there for SSIS catalog work and SQL Server Agent jobs.")
+
+
+def mcp_command(tool: str, args: dict) -> str:
+    """An MCP tool call as the command it runs, so graders and step counts treat both the same."""
+    import shlex
+    from ssisbliss.ssis.mcp import argv_for
+    try:
+        return "ssisbliss " + shlex.join(argv_for(tool.replace("_", "-"), args))
+    except Exception:   # noqa: BLE001 - an unknown tool or argument still counts as a step
+        return f"ssisbliss {tool} {json.dumps(args)}"
+
+
 def parse_transcript(path: Path) -> dict:
     commands, reads, final, cost, turns = [], [], "", 0.0, 0
     for line in path.read_text().splitlines():
@@ -49,6 +65,8 @@ def parse_transcript(path: Path) -> dict:
             for part in ev.get("message", {}).get("content", []):
                 if part.get("type") == "tool_use" and part.get("name") == "Bash":
                     commands.append(part.get("input", {}).get("command", ""))
+                elif part.get("type") == "tool_use" and part.get("name", "").startswith(MCP_PREFIX):
+                    commands.append(mcp_command(part["name"].removeprefix(MCP_PREFIX), part.get("input") or {}))
                 elif part.get("type") == "tool_use":
                     reads.append(json.dumps(part.get("input", {})))
         elif ev.get("type") == "result":
@@ -102,13 +120,27 @@ def install_skill(world, backend: str) -> None:
             f.write(f"\n/{sub.split('/')[0]}/\n")
 
 
-def agent_command(agent: str, s: Scenario, world, out: Path, budget: float) -> tuple[list[str], str]:
+def agent_command(agent: str, s: Scenario, world, out: Path, budget: float,
+                  env: dict | None = None) -> tuple[list[str], str]:
     """The headless agent CLI for `agent` ("claude:sonnet", "claude:haiku", "codex:gpt-6-luna", or a bare
-    Claude model name; "+skill" gives the run the ssisbliss skill) and the transcript format it writes."""
+    Claude model name; "+skill" gives the run the ssisbliss skill, a final "+mcp" the ssisbliss MCP server
+    instead of the CLI, Claude only) and the transcript format it writes."""
+    mcp, agent = agent.endswith("+mcp"), agent.removesuffix("+mcp")
     agent, skill = (agent.removesuffix("+skill"), agent.endswith("+skill"))
     backend, _, model = agent.partition(":") if ":" in agent else ("claude", "", agent)
     if skill:
         install_skill(world, backend)
+    if backend == "claude" and mcp:
+        # The ssisbliss tools over MCP instead of the CLI: the same commands, called as tools.
+        config = out / "mcp.json"
+        config.write_text(json.dumps({"mcpServers": {"ssisbliss": {
+            "command": str(REPO / ".venv" / "bin" / "ssisbliss"), "args": ["mcp"],
+            "env": {k: v for k, v in (env or os.environ).items() if k.startswith("SSISBLISS_")}}}}))
+        tools = [x for x in TOOLS if not x.startswith("Bash(ssisbliss")] + ["mcp__ssisbliss"]
+        return ["claude", "-p", s.prompt, "--output-format", "stream-json", "--verbose", "--model", model,
+                "--append-system-prompt", SYSTEM_MCP, "--setting-sources", "project", "--max-budget-usd", str(budget),
+                "--mcp-config", str(config), "--strict-mcp-config",
+                "--allowedTools", *tools, *(["Skill"] if skill else [])], "claude"
     if backend == "claude":
         return ["claude", "-p", s.prompt, "--output-format", "stream-json", "--verbose", "--model", model,
                 "--append-system-prompt", SYSTEM, "--setting-sources", "project", "--max-budget-usd", str(budget),
@@ -152,7 +184,7 @@ def run_one(s: Scenario, out: Path, model: str, budget: float) -> dict:
            "SSISBLISS_BACKUP_DIR": str(out / "backups"), "SSISBLISS_FAKE_ROOT": str(world.root / "servers"),
            "SSISBLISS_STATE_DIR": str(world.state_dir)}
     env.pop("CLAUDECODE", None)
-    cmd, fmt = agent_command(model, s, world, out, budget)
+    cmd, fmt = agent_command(model, s, world, out, budget, env)
     started = time.time()
     with open(out / "transcript.jsonl", "w") as f:
         proc = subprocess.run(cmd, cwd=world.work, env=env, stdout=f, stderr=subprocess.PIPE, text=True,
@@ -214,7 +246,7 @@ def run_suite(out: Path, only: list[str] | None = None, repeats: int = 1, model:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--only", nargs="*")
-    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint"], help="only this suite (default: all)")
+    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "field"], help="only this suite (default: all)")
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--model", default="sonnet", help="field agent: a Claude model, claude:<model> or codex:<model>")
     p.add_argument("--jobs", type=int, default=4)

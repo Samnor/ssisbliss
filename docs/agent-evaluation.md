@@ -20,8 +20,14 @@ Suites: `deploy`, `troubleshoot`, `vs` (Visual Studio projects), `team` (PR bran
 shared dev), `hard` (requests that name less and traps that need several tools: "deploy my
 changes" with one change already committed, undoing my deploy after a colleague's, a colleague who
 already deployed the same file, one of two packages in conflict, a renamed package a job still
-runs, a failure on an earlier night, a failure inside a child package). `climb/matrix.py` runs them with several agents; `climb/climb.py --model` hill
-climbs the tools with any of them as the field agent. Every change kept by a climb is also run
+runs, a failure on an earlier night, a failure inside a child package), `lint`, and `field`: requests
+asked the way a developer or DBA would put it, without the tool's words ("what would happen if I put this on
+stage? don't change anything", "is prod the same as my repo?", "the finance dashboard shows yesterday's
+numbers"), written after the features rather than for them. `climb/matrix.py` runs them with several
+agents; `climb/climb.py` hill climbs the tools with all of them as field agents. An agent named
+`claude:haiku+mcp` uses the tools through `ssisbliss mcp` instead of the shell ([agents.md](agents.md));
+its tool calls are graded and counted like commands. The climb runs every scenario twice per agent and
+judges a change on the average score per run. Every change kept by a climb is also run
 against the real SQL Server 2019 in the lab (`lab/lab.py verify`).
 
 ## The ssisbliss skill

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- One output contract for every command, for agents and scripts ([docs/agents.md](docs/agents.md)): `ok`
+  (true exactly when the exit code is 0), `error_kind` when it is false, and `next`: what to run next,
+  ready to run with the same `--env` or `--server` (a plan's apply command, with its `plan_id` and
+  `apply_when`). Usage errors are JSON too, exit 5, with the closest commands. Before, they were
+  argparse text with exit 2, the same code as a refused plan.
+- `ssisbliss guide` (the skill's rules and recipes) and `ssisbliss commands` (every command and option
+  as JSON, and the exit codes), for agents that have no skill installed.
+- `ssisbliss mcp` serves every command as an MCP tool over stdio, with schemas built from the commands'
+  options and the same safety: nothing changes without `apply` and the plan's `plan_id`.
+- The commands moved out of `cli.py` into `ssisbliss/ssis/commands/`; `ssisbliss.ssis.cli.run(argv)`
+  returns a command's answer without printing it.
 - `--folder` and `--project` may be left out, unlike Visual Studio's deploy wizard, which asks every
   time: the project is the `.dtproj`'s name, and the folder is where you last deployed or pulled that
   project on that server, else the environment's `folder` in `ssisbliss.toml`. The output says which

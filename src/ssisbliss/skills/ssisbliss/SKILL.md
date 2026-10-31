@@ -5,8 +5,9 @@ description: SSIS packages (.dtsx) and SQL Server SSIS catalogs (SSISDB) with th
 
 # ssisbliss
 
-Every command prints one JSON document. Environments (dev, stage, prod) come from `ssisbliss.toml`:
-pass `--env NAME` plus `--folder` and `--project` (catalog folder and project). When the developer
+Every command prints one JSON document: `ok`, `error_kind` when it is false, and `next`, the command to
+run next (a plan's `next` applies it: run that only when the developer asked for the change).
+Environments (dev, stage, prod) come from `ssisbliss.toml`: pass `--env NAME` plus `--folder` and `--project` (catalog folder and project). When the developer
 did not say which folder or project, leave them out: ssisbliss takes the project from the `.dtproj`
 and the folder from their last deploy, and says so in `target_from`; tell the developer which
 target it chose. If the repository has no `.dtproj`, the error names the project on the server that
