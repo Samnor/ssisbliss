@@ -132,6 +132,20 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 f"{(d.get('apply') or {}).get('status')}, then status: {d.get('status_after')}", raw)
     check("mcp-server", mcp_server)
 
+    def deps_server():
+        built = ps("deps-corpus.ps1")
+        if "DEPS CORPUS BUILT" not in built:
+            return False, "could not build the DEPS project with the SSIS object model", built
+        raw = py("deps-server.py")
+        d = first_json(raw)
+        g, s = d.get("deps") or {}, d.get("silver") or {}
+        return (bool(d.get("ok")), f"deps from Clean.dtsx in a project saved by the SSIS object model: "
+                f"{len(g.get('edges') or [])} links (missing {g.get('missing_edges')}, extra {g.get('extra_edges')}), "
+                f"unknown_sql {g.get('unknown_sql')}, catalog and pulled files agree: {g.get('catalog_and_files_agree')}, "
+                f"{g.get('seconds')}s; all {s.get('packages')} SILVER packages graph (errors: {sorted(s.get('errors', {}))})",
+                built + raw)
+    check("deps-server", deps_server)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

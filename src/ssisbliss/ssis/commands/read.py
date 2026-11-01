@@ -1,4 +1,4 @@
-"""Read-only catalog commands: inspect, outline, executions, slow, health, versions."""
+"""Read-only catalog commands: inspect, outline, deps, executions, slow, health, versions."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,6 +40,43 @@ def cmd_outline(a) -> Reply:
     if name not in ispac.package_names:
         raise ValueError(f"{name} is not in {a.folder}/{a.project}; it has {', '.join(ispac.package_names)}")
     return reply(outline(as_editable(ispac.package(name))))
+
+
+def cmd_deps(a) -> Reply:
+    """How packages connect, from one: what feeds it and what it feeds, link by link."""
+    from .. import deps
+    name = Path(a.package).name
+    name = name if name.lower().endswith(".dtsx") else f"{name}.dtsx"
+    if a.env or a.server:
+        env = _env(a)
+        cat = _catalog(env, a)
+        _target(a, env, cat, Path(a.dir))
+        if cat.project(a.folder, a.project) is None:
+            return reply({"error": f"project {a.folder}/{a.project} not found"}, EXIT_REFUSED)
+        ispac = Ispac(cat.get_project(a.folder, a.project))
+        packages = {n: ispac.package(n) for n in ispac.package_names}
+        source = f"{env.name or env.server}/{a.folder}/{a.project} (deployed)"
+    else:
+        given = Path(a.package)
+        folder = given.parent if given.suffix.lower() == ".dtsx" and given.is_file() else Path(a.dir)
+        packages = {f.name: f.read_bytes() for f in sorted(folder.glob("*.dtsx"))}
+        source = f"{folder} (your files)"
+        if not packages:
+            raise ValueError(f"no .dtsx files in {folder}: give the package's path, --dir with the project's "
+                             f"packages, or --env for the deployed project")
+    facts = {n: deps.facts(n, data) for n, data in packages.items()}
+    if name.lower() not in {n.lower() for n in facts}:
+        return reply({"error": f"{name} is not in {source}; it has {', '.join(sorted(facts, key=str.lower))}"},
+                     EXIT_REFUSED)
+    g = deps.graph(name, facts, depth=a.depth, direction=a.direction)
+    if a.format == "mermaid":
+        return Reply(None, text=deps.mermaid(g))
+    if a.format == "dot":
+        return Reply(None, text=deps.dot(g))
+    unknown = [n["package"] for n in g["nodes"] if n.get("unknown_sql")]
+    return reply({"source": source, **g, "mermaid": deps.mermaid(g),
+                  **({"note": f"{', '.join(unknown)} also run SQL that is built at run time or did not parse "
+                              f"(unknown_sql): links through it are not shown"} if unknown else {})})
 
 
 def cmd_executions(a) -> Reply:

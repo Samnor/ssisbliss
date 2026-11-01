@@ -35,7 +35,7 @@ Having both the skill and the MCP server is not measured.
 Every command keeps the same contract, whichever way it is called (`ssisbliss commands` prints it, with
 `schema_version`):
 
-- stdout is one JSON document (only `install-skill --print` and `sql-diff --markdown` print text);
+- stdout is one JSON document (only `install-skill --print`, `sql-diff --markdown` and `deps --format mermaid|dot` print text);
 - `ok` is true exactly when the exit code is 0;
 - when it is false, `error_kind` says why, and `error`, a plan's `refused_because` or lint's `findings` say what;
 - `next`, when there is one, lists what to do next: commands ready to run, already carrying this command's

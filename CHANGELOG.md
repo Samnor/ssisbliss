@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `ssisbliss deps PACKAGE`: how packages connect, from one. The packages it depends on and that depend on
+  it (Execute Package calls, tables one writes and another reads in Execute SQL tasks and data flows),
+  followed link by link through the project, from your files or the deployed project (`--env`). JSON with
+  every link and why, a run `order` (or the `cycles`), and the graph as Mermaid or Graphviz (`--format`).
+  SQL built at run time is marked, not guessed. Links are indexed by table: 2000 packages graph in well
+  under a second. `lab verify` checks it on a project saved by the SSIS object model. See
+  [docs/deps.md](docs/deps.md).
+- A mistyped command suggests the commands that start with it first (`deploy`: `deploy-packages`,
+  `deploy-project`).
+- A rollback plan says when it undoes only your own deploys; a build refused for its protection level
+  points at `status`, so the developer also hears what the server holds.
 - `formal/model_check.py`: bounded model checking of the core promises (no lost work, plan binding,
   refusals change nothing, deploys and rollbacks of your own work go through) on every action sequence of
   two developers and a Visual Studio colleague up to a depth, against the real commands; CI runs depth 4.

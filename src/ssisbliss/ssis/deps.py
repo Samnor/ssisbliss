@@ -172,3 +172,145 @@ def _merge(edges: list[Edge]) -> list[Edge]:
     for e in edges:
         out[e.package] = Edge(e.package, f"{out[e.package].via}; {e.via}") if e.package in out else e
     return list(out.values())
+
+
+# ------------------------------------------------------------------------------ the graph --
+
+@dataclass(frozen=True)
+class Link:
+    source: str                  # runs first: the parent package, or the one that writes the tables
+    target: str
+    kind: str                    # "runs" (Execute Package task) or "tables"
+    tables: tuple[str, ...] = ()
+
+    def via(self) -> str:
+        if self.kind == "runs":
+            return f"{self.source} runs {self.target} (Execute Package task)"
+        return f"{self.target} reads {', '.join(self.tables)}, which {self.source} writes"
+
+
+def links(all_facts: dict[str, Facts]) -> list[Link]:
+    """Every link between the packages: Execute Package calls, and tables one writes and another reads.
+    Tables are indexed by writer, so this is linear in the tables, not quadratic in the packages."""
+    names = {k.lower(): k for k in all_facts}
+    writers: dict[str, set[str]] = {}
+    for name, f in all_facts.items():
+        for t in f.writes:
+            writers.setdefault(t, set()).add(name)
+    out = []
+    for name, f in all_facts.items():
+        for c in sorted(f.calls, key=str.lower):
+            out.append(Link(name, names.get(c.lower(), c), "runs"))
+        shared: dict[str, set[str]] = {}
+        for t in f.reads:
+            for w in writers.get(t, ()):
+                if w != name:
+                    shared.setdefault(w, set()).add(t)
+        out += [Link(w, name, "tables", tuple(sorted(ts))) for w, ts in shared.items()]
+    return sorted(out, key=lambda x: (x.source.lower(), x.target.lower(), x.kind))
+
+
+def graph(target: str, all_facts: dict[str, Facts], depth: int | None = None, direction: str = "both") -> dict:
+    """The packages `target` depends on (upstream: what runs it or writes what it reads) and that depend on it
+    (downstream), followed link by link up to `depth`, with every link among them. `order` is a run order
+    that respects every link when there is one; `cycles` lists the packages that feed each other."""
+    names = {k.lower(): k for k in all_facts}
+    me = names.get(target.lower(), target)
+    every = links(all_facts)
+    down: dict[str, list[str]] = {}
+    up: dict[str, list[str]] = {}
+    for x in every:
+        down.setdefault(x.source, []).append(x.target)
+        up.setdefault(x.target, []).append(x.source)
+
+    def walk(adjacent: dict[str, list[str]]) -> dict[str, int]:
+        seen, frontier, step = {me: 0}, [me], 0
+        while frontier and (depth is None or step < depth):
+            step += 1
+            frontier = [n for f in frontier for n in adjacent.get(f, ()) if n not in seen]
+            for n in frontier:
+                seen.setdefault(n, step)
+            frontier = list(dict.fromkeys(frontier))
+        return seen
+
+    ups = walk(up) if direction in ("both", "up") else {me: 0}
+    downs = walk(down) if direction in ("both", "down") else {me: 0}
+    keep = set(ups) | set(downs)
+    edges = [x for x in every if x.source in keep and x.target in keep]
+
+    nodes = []
+    def rank(k: str) -> int:   # upstream first (farthest first), then this package, then downstream
+        return -ups[k] if k in ups and k != me else downs.get(k, 0)
+    for n in sorted(keep, key=lambda k: (rank(k), k.lower())):
+        f = all_facts.get(n)
+        role = "this" if n == me else "both" if n in ups and n in downs else "upstream" if n in ups else "downstream"
+        node = {"package": n, "role": role, "steps": min(d.get(n, 10**9) for d in (ups, downs) if n in d)}
+        if f is None:
+            node["missing"] = "called by an Execute Package task but not in this project"
+        elif f.unknown_sql:
+            node["unknown_sql"] = f.unknown_sql
+        nodes.append(node)
+
+    # Kahn: a run order when the links allow one; what is left over is in a cycle
+    indegree = {n: 0 for n in keep}
+    after: dict[str, list[str]] = {}
+    for x in edges:
+        indegree[x.target] += 1
+        after.setdefault(x.source, []).append(x.target)
+    ready = sorted((n for n, d in indegree.items() if d == 0), key=str.lower)
+    order = []
+    while ready:
+        n = ready.pop(0)
+        order.append(n)
+        for m in after.get(n, ()):
+            indegree[m] -= 1
+            if indegree[m] == 0:
+                ready.append(m)
+        ready.sort(key=str.lower)
+    cycles = sorted((n for n in keep if n not in order), key=str.lower)
+
+    return {"package": me, "found": me in all_facts, "packages_in_project": len(all_facts),
+            "nodes": nodes,
+            "edges": [{"from": x.source, "to": x.target, "kind": x.kind, **({"tables": list(x.tables)} if x.tables else {}),
+                       "via": x.via()} for x in edges],
+            **({"order": order} if not cycles else {"cycles": cycles})}
+
+
+def _label(x: dict, most: int = 2) -> str:
+    if x["kind"] == "runs":
+        return "runs"
+    t = x["tables"]
+    return ", ".join(t[:most]) + (f" +{len(t) - most} more" if len(t) > most else "")
+
+
+def mermaid(g: dict) -> str:
+    """The graph as a Mermaid flowchart (GitHub, VS Code and pull requests render it)."""
+    ids = {n["package"]: f"n{i}" for i, n in enumerate(g["nodes"])}
+    lines = ["flowchart LR"]
+    for n in g["nodes"]:
+        lines.append(f'    {ids[n["package"]]}["{n["package"].replace(chr(34), "#quot;")}"]')
+    for x in g["edges"]:
+        arrow = "==>" if x["kind"] == "runs" else "-->"
+        lines.append(f'    {ids[x["from"]]} {arrow}|"{_label(x).replace(chr(34), "#quot;")}"| {ids[x["to"]]}')
+    lines += ["    classDef this stroke-width:3px", "    classDef unknown stroke-dasharray: 5 5",
+              "    classDef missing stroke-dasharray: 2 2,color:#888"]
+    for n in g["nodes"]:
+        cls = "this" if n["role"] == "this" else "missing" if n.get("missing") else "unknown" if n.get("unknown_sql") else ""
+        if cls:
+            lines.append(f"    class {ids[n['package']]} {cls}")
+    return "\n".join(lines) + "\n"
+
+
+def dot(g: dict) -> str:
+    """The graph for Graphviz (dot -Tsvg)."""
+    def q(s: str) -> str:
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    lines = ["digraph ssis {", "    rankdir=LR;", "    node [shape=box];"]
+    for n in g["nodes"]:
+        style = ("penwidth=3" if n["role"] == "this" else "style=dotted" if n.get("missing")
+                 else "style=dashed" if n.get("unknown_sql") else "")
+        lines.append(f"    {q(n['package'])}" + (f" [{style}]" if style else "") + ";")
+    for x in g["edges"]:
+        style = ", style=bold" if x["kind"] == "runs" else ""
+        lines.append(f"    {q(x['from'])} -> {q(x['to'])} [label={q(_label(x))}{style}];")
+    return "\n".join(lines) + "\n}\n"

@@ -1,6 +1,6 @@
 """The output contract every command keeps, for agents and scripts alike (`ssisbliss commands` shows it).
 
-- stdout is one JSON document (only install-skill --print and sql-diff --markdown print text);
+- stdout is one JSON document (only install-skill --print, sql-diff --markdown and deps --format mermaid|dot print text);
 - `ok` is true exactly when the exit code is 0;
 - when it is false, `error_kind` says why (the exit code in words, see EXIT_KINDS) and the document says what
   to do: `error`, or a plan's `refused_because`, or lint's findings;
@@ -49,8 +49,10 @@ class Parser(argparse.ArgumentParser):
 def usage_doc(e: UsageError, argv: list[str], commands: list[str]) -> dict:
     wrong = re.search(r"invalid choice: '([^']*)'", e.message)
     if e.prog == "ssisbliss" and wrong and wrong.group(1) not in commands:
-        close = difflib.get_close_matches(wrong.group(1), commands, n=3, cutoff=0.4)
+        # commands that start with or contain what was typed come first ("deploy" means a deploy, not deps)
+        close = [c for c in commands if c.startswith(wrong.group(1))]
         close += [c for c in commands if wrong.group(1) in c and c not in close]
+        close = close or difflib.get_close_matches(wrong.group(1), commands, n=3, cutoff=0.4)
         nxt = [f"ssisbliss {c} --help" for c in close[:3]] + ["ssisbliss commands"]
         return {"error": f"no command '{wrong.group(1)}'" + (f"; did you mean: {', '.join(close[:3])}" if close else ""),
                 "next": nxt}

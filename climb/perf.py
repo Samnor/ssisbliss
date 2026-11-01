@@ -3,7 +3,7 @@
 
 Builds (once per run) worlds at the sizes real estates reach and times the commands people and agents
 run there, as the median of several runs: startup, lint and format on a 1.2 MB package with 2000 SQL
-statements, status and a deploy plan on a project with 200 packages, and activity and strays in a
+statements, status, a deploy plan and deps on a project with 200 packages, and activity and strays in a
 repository with 40 colleague branches. For the git-heavy commands it also counts the git processes
 started, which (unlike time) does not move with the machine's load.
 
@@ -117,6 +117,8 @@ def benchmarks(w: dict[str, Path]) -> dict[str, tuple[Path | None, list[str], bo
         "format_check_big_package": (None, ["format", "--check", str(w["big_pkg"])], False),
         "status_200_packages": (w["big"], ["status", *big, "--dir", "BIG"], False),
         "deploy_plan_200_packages": (w["big"], ["deploy-packages", *big, "BIG/Load_007.dtsx"], False),
+        "deps_200_packages": (w["big"], ["deps", "BIG/Load_007.dtsx"], False),
+        "deps_200_packages_deployed": (w["big"], ["deps", "Load_007", *big], False),
         "activity_40_branches": (w["busy"], ["activity", *dev, "--dir", "STAGE", "Stage_Customer"], True),
         "activity_all_40_branches": (w["busy"], ["activity", *dev, "--dir", "STAGE"], True),
         "strays_40_branches": (w["busy"], ["strays", *dev, "--dir", "STAGE"], True),

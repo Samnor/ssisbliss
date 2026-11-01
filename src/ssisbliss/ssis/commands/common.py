@@ -12,7 +12,7 @@ from ..ispac import Ispac
 
 @dataclass
 class Reply:
-    """A command's answer: one JSON document and the exit code, or (install-skill --print, sql-diff --markdown) text."""
+    """A command's answer: one JSON document and the exit code, or (install-skill --print, sql-diff --markdown, deps --format mermaid|dot) text."""
     doc: dict | None
     code: int = 0
     text: str | None = None

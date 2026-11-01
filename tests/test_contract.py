@@ -14,8 +14,8 @@ def run(capsys, *argv):
 
 def test_usage_errors_are_json_and_point_at_help(capsys):
     code, doc = run(capsys, "deploy", "--env", "dev")
-    assert code == EXIT_USAGE and "did you mean: deploy-project, deploy-packages" in doc["error"]
-    assert doc["next"][:2] == ["ssisbliss deploy-project --help", "ssisbliss deploy-packages --help"]
+    assert code == EXIT_USAGE and "did you mean: deploy-packages, deploy-project" in doc["error"]
+    assert doc["next"][:2] == ["ssisbliss deploy-packages --help", "ssisbliss deploy-project --help"]
     code, doc = run(capsys, "rollback", "--env", "dev")
     assert code == EXIT_USAGE and "--to-lsn" in doc["error"] and doc["next"] == ["ssisbliss rollback --help"]
     code, doc = run(capsys, "lint", "--bogus")

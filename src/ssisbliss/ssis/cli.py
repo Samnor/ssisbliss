@@ -16,7 +16,7 @@ from .commands.about import GUIDE_TOPICS, cmd_commands, cmd_guide
 from .commands.common import Reply, _catalog  # noqa: F401 - _catalog: used by lab tools
 from .commands.deploys import (cmd_activity, cmd_build, cmd_deploy_packages, cmd_deploy_project, cmd_pull,
                                cmd_remove_packages, cmd_rollback, cmd_status, cmd_strays)
-from .commands.read import cmd_executions, cmd_health, cmd_inspect, cmd_outline, cmd_slow, cmd_versions
+from .commands.read import cmd_deps, cmd_executions, cmd_health, cmd_inspect, cmd_outline, cmd_slow, cmd_versions
 from .commands.skill import cmd_install_skill, skill_text  # noqa: F401 - skill_text: used by the climb
 from .commands.sqlcode import _oledb_providers, cmd_format, cmd_lint, cmd_sql_diff  # noqa: F401 - lab tools
 from .contract import EXIT_USAGE, Parser, UsageError, envelope, usage_doc
@@ -109,6 +109,21 @@ def parser() -> argparse.ArgumentParser:
     target(s, required=False)
     s.add_argument("--package")
     s.set_defaults(fn=cmd_outline)
+
+    what = ("how packages connect, from one: the packages it depends on and that depend on it (Execute Package "
+            "calls, tables one writes and another reads), followed link by link, as JSON, Mermaid or Graphviz")
+    s = sub.add_parser("deps", help=what, description=what + ". Read-only. Reads your project folder, or the "
+                       "deployed project with --env/--server.")
+    s.add_argument("package", help="the package: a name, or the path to its .dtsx file")
+    s.add_argument("--dir", default=".", help="folder with the project's .dtsx files (default: the package's "
+                                              "folder, else here)")
+    target(s, required=False)
+    s.add_argument("--depth", type=int, help="follow links this many steps out (default: all the way)")
+    s.add_argument("--direction", choices=["both", "up", "down"], default="both",
+                   help="up: what it depends on; down: what depends on it (default both)")
+    s.add_argument("--format", choices=["json", "mermaid", "dot"], default="json",
+                   help="mermaid and dot print the graph as text (the JSON has the Mermaid too)")
+    s.set_defaults(fn=cmd_deps)
 
     from ..agent.cli import troubleshooting_help
     what = "recent executions; for failures: the failing task, its messages and what it runs"
