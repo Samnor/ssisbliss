@@ -172,6 +172,8 @@ def test_lint_changed_baseline_and_exit_codes(repo, capsys):
     assert out["packages"] == 1 and {f["rule"] for f in out["findings"]} == {"SSB202"}
 
 
-def test_rules_listing(capsys):
+def test_rules_listing(capsys, tmp_path, monkeypatch):
+    (tmp_path / "Broken.dtsx").write_text("not a package")      # the listing reads no packages
+    monkeypatch.chdir(tmp_path)
     code, out = call(capsys, "lint", "--rules")
-    assert out["rules"]["SSB102"]["severity"] == "error" and len(out["rules"]) >= 15
+    assert code == 0 and out["rules"]["SSB102"]["severity"] == "error" and len(out["rules"]) >= 15

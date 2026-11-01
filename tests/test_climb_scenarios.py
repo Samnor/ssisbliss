@@ -9,6 +9,7 @@ import pytest
 CLIMB = Path(__file__).resolve().parents[1] / "climb"
 if not CLIMB.is_dir():   # the source archive ships the package's tests, not the climb
     pytest.skip("climb/ is only in the repository", allow_module_level=True)
+pytestmark = pytest.mark.slow
 sys.path.insert(0, str(CLIMB))
 from scenarios import SCENARIOS, grade  # noqa: E402
 from world import ME, git  # noqa: E402

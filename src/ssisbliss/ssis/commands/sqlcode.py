@@ -61,6 +61,8 @@ def _oledb_providers(conn) -> set[str] | None:
 def cmd_lint(a) -> Reply:
     from ..lint import RULES, SEVERITY, lint_package, server_parse
     from ..sqlsites import sites
+    if a.rules:      # the list of rules needs no packages: nothing below this folder is read
+        return reply({"rules": {k: {"name": v[0], "severity": v[1], "what": v[2]} for k, v in RULES.items()}})
     files = _package_files(a.paths)
     ref = ""
     if a.changed:
@@ -110,8 +112,6 @@ def cmd_lint(a) -> Reply:
         fixable = sorted({x.file for x in findings if x.rule == "SSB301"})
         if fixable:
             doc["format_command"] = "ssisbliss format " + " ".join(f'"{x}"' for x in fixable)
-    if a.rules:
-        doc = {"rules": {k: {"name": v[0], "severity": v[1], "what": v[2]} for k, v in RULES.items()}}
     return reply(doc, EXIT_REFUSED if any(SEVERITY[x.severity] >= fail for x in findings) else EXIT_OK)
 
 
