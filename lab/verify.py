@@ -124,6 +124,14 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 f"Excel connections: {d.get('missing')}", raw)
     check("slow-design-server", slow_design_server)
 
+    def mcp_server():
+        raw = py("mcp-server.py")
+        d = first_json(raw)
+        return (bool(d.get("ok")), f"MCP over stdio ({d.get('protocol')}, {d.get('tools')} tools): plan, apply without "
+                f"plan id {(d.get('apply_without_plan_id') or {}).get('error_kind')}, apply "
+                f"{(d.get('apply') or {}).get('status')}, then status: {d.get('status_after')}", raw)
+    check("mcp-server", mcp_server)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

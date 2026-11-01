@@ -1,6 +1,6 @@
 [project]
 name = "ssisbliss"
-version = "0.1.0"
+version = "0.2.0"
 description = "SSIS deploys that never overwrite your colleagues' work, and SQL Agent nightly loads explained. For people and AI agents."
 readme = "README.md"
 license = "MIT"

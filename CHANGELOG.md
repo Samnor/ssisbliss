@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-01)
 
+Changes that scripts may notice: a usage error (unknown command or option, missing argument) now exits 5
+with a JSON document, where it was argparse text with exit 2, the same code as a refused plan. Every JSON
+document gains `ok` first, `error_kind` when it is false, and `next` when there is a next step; no existing
+field changed or moved out.
+
+- `lab verify` drives `ssisbliss mcp` as an MCP client against the real SQL Server: plan, an apply without
+  the plan id (refused), the apply, status after it, a read-only chain.
 - One output contract for every command, for agents and scripts ([docs/agents.md](docs/agents.md)): `ok`
   (true exactly when the exit code is 0), `error_kind` when it is false, and `next`: what to run next,
   ready to run with the same `--env` or `--server` (a plan's apply command, with its `plan_id` and
