@@ -98,7 +98,7 @@ Rules:
 - A change that makes any benchmark clearly slower is reverted, whatever the agents scored.
 - A change that makes a benchmark clearly faster and leaves every output the agents saw byte-identical is
   kept on speed alone. So a pure speed change should not touch any message, help text or JSON field.
-- Add or update tests for the change; `uv run pytest -q -m "slow or not slow"` must pass.
+- Add or update tests for the change; `uv run pytest -q` must pass.
 - When done, write a short description of the change (first line = summary) to {summary_file}.
 
 Changes already tried, with what happened (do not repeat a reverted idea; if you build on one, say what is
@@ -133,7 +133,7 @@ def revert() -> None:
 
 
 def tests_pass() -> bool:
-    return subprocess.run(["uv", "run", "pytest", "-q", "-m", "slow or not slow"], cwd=REPO, capture_output=True).returncode == 0
+    return subprocess.run(["uv", "run", "pytest", "-q"], cwd=REPO, capture_output=True).returncode == 0
 
 
 def totals(cards: dict[str, dict]) -> dict:

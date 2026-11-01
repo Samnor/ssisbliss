@@ -45,11 +45,8 @@ packages = ["src/ssisbliss"]
 [tool.hatch.build.targets.sdist]
 only-include = ["src", "tests", "docs", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml"]
 
-# `pytest` is the quick loop while you work; CI runs everything: pytest -m "slow or not slow".
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = '-m "not slow"'
-markers = ["slow: the model checker and the climb's solvable-scenario tests (about two minutes)"]
 
 [tool.pyright]
 venvPath = "."

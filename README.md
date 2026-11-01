@@ -69,8 +69,7 @@ and plans also work with SQL logins. Tested against SQL Server 2019 (15.0.4470.1
 
 ```bash
 uv sync
-uv run pytest                            # the quick loop, under a minute
-uv run pytest -m "slow or not slow"      # everything, as CI does: also the model checker and the climb's scenarios
+uv run pytest
 ```
 
 `lab/` and `climb/` (the AWS lab and the agent evaluation) are development tooling and are not

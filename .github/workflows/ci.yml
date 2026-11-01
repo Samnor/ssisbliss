@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
-      - run: uv run pytest -q -m "slow or not slow"
+      - run: uv run pytest -q
 
   package:
     runs-on: ubuntu-latest
