@@ -71,16 +71,29 @@ def _dtproj(directory: Path) -> Path | None:
     return None
 
 
-def _targets_on_server(a, cat, directory: Path) -> str:
-    """For a target the command could not work out: what to pass, from the projects on the server, those that
-    hold the packages in `directory` first. Only said in the error: the developer's command names the target."""
+def _target_from_server(a, cat, directory: Path, ask: str) -> None:
+    """For a target the command could not work out: the one project on the server that holds the packages in
+    `directory` fills it in, shown in target_from and named in the plan's `next`. An --apply names its target
+    itself, so it is refused like any other case: `ask`, plus what to pass, from the projects on the server."""
     try:
         rows = [(r["folder"], r["project"]) for r in cat.list_projects(a.folder or None) if r.get("project")
                 and (not a.project or r["project"].lower() == a.project.lower())]
         local = {f.name.lower() for f in directory.glob("*.dtsx")}
         holding = [(f, p) for f, p in rows if local & {n.lower() for n in cat.packages(cat.project(f, p).project_id)}]
     except Exception:   # noqa: BLE001 - only a hint: the error it adds to must still reach the developer
-        return ""
+        raise ValueError(ask) from None
+    if len(holding) == 1 and not getattr(a, "apply", False):
+        why = f"(the only project on the server holding the packages in {directory})"
+        for option, value in zip(("folder", "project"), holding[0]):
+            if not getattr(a, option):
+                setattr(a, option, value)
+                _target_from[option] = f"{value} {why}"
+                _argv.extend([f"--{option}", value])
+        return
+    raise ValueError(ask + _targets_on_server(directory, rows, holding))
+
+
+def _targets_on_server(directory: Path, rows: list, holding: list) -> str:
     if len(holding) == 1:
         folder, project = holding[0]
         return f". The packages in {directory} are in folder {folder}, project {project} on the server: add --folder {folder} --project {project}"
@@ -99,11 +112,12 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
     if not a.project:
         dtproj = dtproj or _dtproj(directory)
         if dtproj is None:
-            raise ValueError(f"give --project{'' if a.folder else ' and --folder'}: no Visual Studio project (.dtproj) "
-                             f"in {directory} or above it{_targets_on_server(a, cat, directory)}")
-        from ..build import load_dtproj
-        a.project = load_dtproj(dtproj).name
-        _target_from["project"] = f"{a.project} (from {dtproj})"
+            _target_from_server(a, cat, directory, f"give --project{'' if a.folder else ' and --folder'}: no Visual "
+                                                   f"Studio project (.dtproj) in {directory} or above it")
+        else:
+            from ..build import load_dtproj
+            a.project = load_dtproj(dtproj).name
+            _target_from["project"] = f"{a.project} (from {dtproj})"
     if not a.folder:
         server = cat.server_info().server_name
         mine = base.folders(directory, server, a.project)
@@ -119,9 +133,10 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
             a.folder = env.folder
             _target_from["folder"] = f"{a.folder} (folder of environment {env.name} in ssisbliss.toml)"
         else:
-            raise ValueError(f"give --folder: you have not deployed or pulled {a.project} on {server} from this "
-                             f"repository, and {'environment ' + env.name if env.name else '--server'} has no folder "
-                             f"in ssisbliss.toml{_targets_on_server(a, cat, directory)}")
+            _target_from_server(a, cat, directory,
+                                f"give --folder: you have not deployed or pulled {a.project} on {server} from this "
+                                f"repository, and {'environment ' + env.name if env.name else '--server'} has no "
+                                "folder in ssisbliss.toml")
 
 
 def _server_connection(env: Environment, a):

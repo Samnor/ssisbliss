@@ -10,8 +10,9 @@ run next (a plan's `next` applies it: run that only when the developer asked for
 Environments (dev, stage, prod) come from `ssisbliss.toml`: pass `--env NAME` plus `--folder` and `--project` (catalog folder and project). When the developer
 did not say which folder or project, leave them out: ssisbliss takes the project from the `.dtproj`
 and the folder from their last deploy, and says so in `target_from`; tell the developer which
-target it chose. If the repository has no `.dtproj`, the error names the project on the server that
-holds the packages: rerun with the `--folder` and `--project` it gives. Nothing changes
+target it chose. If the repository has no `.dtproj`, plans and reports use the one project on the
+server that holds the packages; if several do, the error lists them: ask, or rerun with the right
+`--folder` and `--project`. An `--apply` must name both: run the plan's `next`. Nothing changes
 on a server without `--apply` and the `plan_id` of a plan you just made.
 
 ## Rules (never break these)
