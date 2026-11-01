@@ -174,7 +174,7 @@ tool call. Every run worked, at every point of the climb, so the only thing that
 
 | Iteration | Compared with | Gain (points per run) | z | Steps | Verdict |
 |---|---|---|---|---|---|
-| 1. Quick test loop (3.5 min to 30 s) | baseline | +2.1 | 0.61 | 520 to 486 | reverted by the rule |
+| 1. Quick test loop (3.5 min to 30 s) | baseline | +2.1 | 0.61 | 520 to 486 | reverted by the rule, then restored by the developer's decision |
 | 2. No import cycles (9 modules to 0), no process-wide state | baseline | -1.2 | -0.50 | 520 to 539 | kept on structure alone: no measured value |
 | 3. A map of the code, `AGENTS.md` | iteration 2 | +10.3 | 2.87 | 539 to 374 | kept: agents did better |
 | The map on three held-out tasks | iteration 2 | +4.0 | 2.23 | 223 to 175 | written after the map: the gain is real, and about half the size |
@@ -183,6 +183,9 @@ From baseline to the end the gain is 9.12 points per run and steps fall 28%. Wha
 telling agents where things are, not rearranging the things. Removing cycles and globals is good housekeeping,
 and it stays, but it bought no measured reduction in effort on these tasks. Iteration 1's first measurement
 exposed two faults in the instrument (a step cap that hid a 76-to-28-step run, and a task that did not say what a
-field holds); both sides were measured again with the thresholds unchanged. The climb's own tasks are small, and
+field holds); both sides were measured again with the thresholds unchanged. The quick test loop did not clear the
+rule, whose score does not count time, and was taken back in afterwards as a decision, not a measured result: in
+its side-by-side run wall time per run fell 42% and Haiku's cost 40%, while Luna used 19% more steps, and the
+final numbers above were measured without it. The climb's own tasks are small, and
 a change that pays off over years or on large features would not show here.
 

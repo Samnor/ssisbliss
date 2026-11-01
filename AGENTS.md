@@ -1,8 +1,8 @@
 # Working on ssisbliss
 
 A Python CLI for SSIS catalogs and SQL Agent, used by people and LLM agents. Run tests with
-`.venv/bin/python -m pytest -q <files>`; the whole suite takes about three minutes, so run the files you
-touched and leave the rest to CI. Run the tool with `.venv/bin/ssisbliss`. Add a CHANGELOG.md line under
+`.venv/bin/python -m pytest -q`, about 30 seconds; the model checker and the climb's scenarios (slow, about
+two minutes more) run with `-m "slow or not slow"`, as CI does. Run the tool with `.venv/bin/ssisbliss`. Add a CHANGELOG.md line under
 Unreleased for anything a user would notice.
 
 ## Where things are

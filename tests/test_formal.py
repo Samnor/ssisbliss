@@ -8,6 +8,7 @@ import pytest
 FORMAL = Path(__file__).resolve().parents[1] / "formal"
 if not FORMAL.is_dir():   # the source archive ships the package's tests, not formal/
     pytest.skip("formal/ is only in the repository", allow_module_level=True)
+pytestmark = pytest.mark.slow
 sys.path.insert(0, str(FORMAL))
 import model_check  # noqa: E402
 
