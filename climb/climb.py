@@ -12,9 +12,9 @@ A change that is clearly faster and leaves the output of every command the agent
 (climb/sameoutput.py) is kept without agent runs: the agents cannot have scored differently.
 Every proposal's diff is saved as iter-N.patch, kept or not. Runs on a climb/ branch.
 
-The field agents default to the small models the tools are built for, with and without the skill, and
-over MCP: claude:haiku+skill, codex:gpt-6-luna+skill, claude:haiku, claude:haiku+mcp and codex:gpt-6-luna+mcp. A change has to
-help them together. Each scenario runs twice per agent by default: one run moves a total by about as much
+The field agents default to the small models the tools are built for, each with the skill and over MCP:
+claude:haiku+skill, codex:gpt-6-luna+skill, claude:haiku+mcp and codex:gpt-6-luna+mcp, all at once. A change
+has to help them together. Each scenario runs twice per agent by default: one run moves a total by about as much
 as a typical change does.
 
     uv run python climb/climb.py --iterations 5 [--agents ...] [--repeats 2] [--suite lint] [--proposer opus]
@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 CLIMB = Path(__file__).resolve().parent
@@ -44,7 +45,7 @@ ALLOWED = ("src/ssisbliss/", "docs/", "README.md", "tests/test_ssis_deploy.py", 
            "tests/test_outline_executions.py", "tests/test_build.py", "tests/test_activity.py", "tests/test_lint.py",
            "tests/test_sqlformat.py", "tests/test_contract.py")
 FORBIDDEN = ("src/ssisbliss/ssis/fake.py", "src/ssisbliss/agent/fake.py")
-DEFAULT_AGENTS = "claude:haiku+skill,codex:gpt-6-luna+skill,claude:haiku,claude:haiku+mcp,codex:gpt-6-luna+mcp"
+DEFAULT_AGENTS = "claude:haiku+skill,codex:gpt-6-luna+skill,claude:haiku+mcp,codex:gpt-6-luna+mcp"
 
 PROPOSE = """You are improving ssisbliss, a command-line tool for SSIS packages and SQL Server SSIS catalogs that
 developers and LLM agents use, and the ssisbliss skill (src/ssisbliss/skills/ssisbliss/SKILL.md) that teaches
@@ -176,10 +177,11 @@ def average(a: dict, b: dict) -> dict:
 
 
 def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
-    cards = {}
-    for agent in agents:
-        cards[agent] = run_suite(out / agent.replace(":", "-"), repeats=a.repeats, model=agent, jobs=a.jobs,
-                                 budget=a.budget, suite=a.suite)
+    # The agents run at the same time (--jobs runs each): an evaluation takes as long as the slowest agent.
+    with ThreadPoolExecutor(len(agents)) as pool:
+        cards = dict(zip(agents, pool.map(lambda agent: run_suite(
+            out / agent.replace(":", "-"), repeats=a.repeats, model=agent, jobs=a.jobs, budget=a.budget,
+            suite=a.suite), agents)))
     (out / "matrix.json").write_text(json.dumps(cards, indent=2))
     (out / "matrix.md").write_text(matrix_markdown(cards, a.repeats))
     return cards
@@ -208,7 +210,7 @@ def main() -> None:
     p.add_argument("--min-gain", type=float, default=0.35,
                    help="points the average score per run (out of 100) must rise by to keep a change: noise control")
     p.add_argument("--proposer", default="opus", help="model proposing tool changes")
-    p.add_argument("--jobs", type=int, default=6)
+    p.add_argument("--jobs", type=int, default=6, help="runs at a time per agent")
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
     p.add_argument("--baseline", help="existing climb evaluation dir (with matrix.json) to use as the baseline")
     p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "field"], help="only this scenario suite")
