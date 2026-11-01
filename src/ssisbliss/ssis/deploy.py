@@ -520,12 +520,14 @@ def plan_rollback(catalog: Catalog, folder: str, project: str, to_lsn: int, allo
         plan.check("version", "error", f"lsn {to_lsn} is not a stored version of this project "
                                        f"(catalog retention may have removed it)")
     else:
-        plan.check("version", "ok", f"restore lsn {to_lsn}")
         me = catalog.login().lower()
         gone = undone_versions(versions)
-        others = [v for v in versions if v["object_version_lsn"] > to_lsn and v["object_version_lsn"] not in gone
-                  and v.get("created_by")
-                  and v["created_by"].lower() != me]
+        undone = [v for v in versions if v["object_version_lsn"] > to_lsn and v["object_version_lsn"] not in gone]
+        others = [v for v in undone if v.get("created_by") and v["created_by"].lower() != me]
+        only_yours = undone and not others and all(v.get("created_by") for v in undone)
+        plan.check("version", "ok", f"restore lsn {to_lsn}" + (f": undoes only your own deploys "
+                                                               f"({deploys_since(undone, to_lsn)}), nobody else's"
+                                                               if only_yours else ""))
         if others:
             since = deploys_since(others, to_lsn)
             if undo_others:

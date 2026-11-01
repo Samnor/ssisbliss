@@ -295,6 +295,28 @@ def test_rollback_restores_previous_version(cat, tmp_path):
     assert package_sha256(Ispac(cat.get_project(F, P)).package("Load_A.dtsx")) == package_sha256(cat.pkgs["Load_A.dtsx"])
 
 
+def _version_detail(plan):
+    return next(c["detail"] for c in plan.checks if c["check"] == "version")
+
+
+def test_rollback_plan_says_when_it_undoes_only_your_own_deploys(cat):
+    first = cat.project(F, P).object_version_lsn
+    cat.deploy_packages(F, P, [("Load_A.dtsx", dtsx("Load_A.dtsx", revision=2))])
+    latest = cat.project(F, P).object_version_lsn
+    rb = plan_rollback(cat, F, P, first)
+    assert "undoes only your own deploys" in _version_detail(rb) and f"lsn {latest}" in _version_detail(rb)
+    assert rb.can_apply and not rb.changes
+
+
+def test_rollback_plan_never_calls_a_colleagues_or_unknown_deploy_yours(cat, monkeypatch):
+    first = cat.project(F, P).object_version_lsn
+    cat.someone_else_deploys(F, P, "Load_B.dtsx", dtsx("Load_B.dtsx", revision=5))
+    assert _version_detail(plan_rollback(cat, F, P, first, undo_others=True)) == f"restore lsn {first}"
+    versions = cat.versions(cat.project(F, P).project_id)
+    monkeypatch.setattr(cat, "versions", lambda _: [{**v, "created_by": None} for v in versions])
+    assert _version_detail(plan_rollback(cat, F, P, first)) == f"restore lsn {first}"
+
+
 def test_rollback_to_unknown_version_is_refused(cat):
     assert plan_rollback(cat, F, P, 1).errors
 

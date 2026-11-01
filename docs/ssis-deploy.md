@@ -217,6 +217,7 @@ of the deployed project minus those packages, with a backup and verification.
 5. Output includes the exact `rollback` command (`catalog.restore_project` to the previous
    LSN). A rollback replaces every package, so its plan is refused when someone else deployed
    after the version you restore (versions an earlier restore already undid do not count).
+   When only your own deploys are undone, the plan's `version` check says so and lists them.
 
 ## Exit codes
 
