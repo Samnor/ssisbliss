@@ -1,10 +1,11 @@
 """Commands that compare, deploy, remove or roll back packages, and those that say who else works on them."""
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from .. import base
-from ..build import build
+from ..build import ProtectionRefused, build
 from ..deploy import (EXIT_REFUSED, Plan, deploys_since, plan_packages, plan_project,
                       plan_remove, plan_rollback, resolve_only)
 from ..dtsx import as_editable, package_sha256, read_package
@@ -211,7 +212,15 @@ def _ispac_base_dirs(ispac: Path) -> list[Path]:
 
 def cmd_build(a) -> Reply:
     dtproj = Path(a.dtproj)
-    data, report = build(dtproj, a.configuration)
+    try:
+        data, report = build(dtproj, a.configuration)
+    except ProtectionRefused as e:
+        # The developer fixes this, so they should hear in one answer whatever else waits for this deploy.
+        return reply({"error": str(e), "next": [f"ssisbliss status --env ENV --dir {shlex.quote(str(dtproj.parent))}"],
+                      "note": "Nothing was built, and the protection level is the developer's to change, not yours. "
+                              "A deploy with --dtproj is refused the same way. Before you report this, run `next` "
+                              "(read-only) with the environment the developer named, and tell them what the server "
+                              "holds: whether a colleague changed these packages too."}, EXIT_REFUSED)
     out = Path(a.out) if a.out else dtproj.parent / "bin" / report["configuration"] / f"{report['project']}.ispac"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)

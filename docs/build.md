@@ -26,7 +26,7 @@ fixtures in `tests/fixtures/build/`).
 | Packages | **re-saved** with Visual Studio's own SSIS runtime: newer version stamp, extra connection properties (`ConnectRetryCount`, `ConnectRetryInterval`, `ConnectByProxy`), connection strings evaluated with the configuration's values | as they are (package parameters re-serialized when a configuration is applied) | as they are |
 | `Project.params` | as stored | re-serialized (root element renamed `ProjectParameters`) | as stored, values set in place |
 | Manifest XML declaration | none | none | none (SSISDB rejects one) |
-| EncryptSensitiveWithUserKey / password | re-encrypted for the build user | re-encrypted (or `-stripSensitive`) | refused, with what to do instead |
+| EncryptSensitiveWithUserKey / password | re-encrypted for the build user | re-encrypted (or `-stripSensitive`) | refused, with what to do instead and `status` in `next`, to see what the server holds |
 
 ## On the server
 
