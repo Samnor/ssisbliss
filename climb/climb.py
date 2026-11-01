@@ -13,7 +13,7 @@ A change that is clearly faster and leaves the output of every command the agent
 Every proposal's diff is saved as iter-N.patch, kept or not. Runs on a climb/ branch.
 
 The field agents default to the small models the tools are built for, with and without the skill, and
-over MCP: claude:haiku+skill, codex:gpt-6-luna+skill, claude:haiku and claude:haiku+mcp. A change has to
+over MCP: claude:haiku+skill, codex:gpt-6-luna+skill, claude:haiku, claude:haiku+mcp and codex:gpt-6-luna+mcp. A change has to
 help them together. Each scenario runs twice per agent by default: one run moves a total by about as much
 as a typical change does.
 
@@ -44,7 +44,7 @@ ALLOWED = ("src/ssisbliss/", "docs/", "README.md", "tests/test_ssis_deploy.py", 
            "tests/test_outline_executions.py", "tests/test_build.py", "tests/test_activity.py", "tests/test_lint.py",
            "tests/test_sqlformat.py", "tests/test_contract.py")
 FORBIDDEN = ("src/ssisbliss/ssis/fake.py", "src/ssisbliss/agent/fake.py")
-DEFAULT_AGENTS = "claude:haiku+skill,codex:gpt-6-luna+skill,claude:haiku,claude:haiku+mcp"
+DEFAULT_AGENTS = "claude:haiku+skill,codex:gpt-6-luna+skill,claude:haiku,claude:haiku+mcp,codex:gpt-6-luna+mcp"
 
 PROPOSE = """You are improving ssisbliss, a command-line tool for SSIS packages and SQL Server SSIS catalogs that
 developers and LLM agents use, and the ssisbliss skill (src/ssisbliss/skills/ssisbliss/SKILL.md) that teaches
@@ -100,7 +100,7 @@ Rules:
 Changes already tried, with what happened (do not repeat a reverted idea; if you build on one, say what is
 different and why it should do better):
 
-{history}"""
+{history}{idea}"""
 
 
 def git(*args: str, check: bool = True) -> str:
@@ -186,11 +186,13 @@ def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
 
 
 def propose(run_dir: Path, card_md: str, summary_file: Path, model: str, budget: float, history: str,
-            perf_md: str) -> None:
+            perf_md: str, idea: str = "") -> None:
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
     prompt = PROPOSE.format(scorecard=card_md, run_dirs=run_dir, summary_file=summary_file,
-                            history=history.strip() or "(none yet)", perf=perf_md)
+                            history=history.strip() or "(none yet)", perf=perf_md,
+                            idea=f"\n\nTry this idea first (check it against the transcripts; make it the one change): {idea}"
+                            if idea else "")
     subprocess.run(["claude", "-p", prompt, "--model", model, "--permission-mode", "acceptEdits",
                     "--setting-sources", "project", "--max-budget-usd", str(budget),
                     "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep",
@@ -213,6 +215,7 @@ def main() -> None:
     p.add_argument("--perf-repeat", type=int, default=3, help="runs per speed benchmark (median)")
     p.add_argument("--history", action="append", default=[], metavar="LOG",
                    help="log.md of an earlier climb, so the proposer knows what was tried (repeatable)")
+    p.add_argument("--idea", default="", help="a change for the first iteration to try")
     a = p.parse_args()
     agents = [x.strip() for x in a.agents.split(",") if x.strip()]
 
@@ -247,7 +250,7 @@ def main() -> None:
         summary_file = root / f"iter-{i}-proposal.md"
         history = "\n".join(Path(h).read_text() for h in a.history) + "\n" + (log.read_text() if log.exists() else "")
         propose(best_dir, (best_dir / "matrix.md").read_text(), summary_file, a.proposer, budget=8.0, history=history,
-                perf_md=perf.markdown(best_perf))
+                perf_md=perf.markdown(best_perf), idea=a.idea if i == 1 else "")
         files = changed_files()
         if files:
             save_patch(root / f"iter-{i}.patch", files)
