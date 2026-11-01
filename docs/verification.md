@@ -68,12 +68,22 @@ Building the checker also showed where it was too weak: its first version change
 comments, which the package hash rightly ignores, so no edit was ever a change and the planted bugs went
 unseen. The planted-bug tests are what caught that.
 
+## What it found
+
+At depth 5, a real bug: deploy your change, roll your own deploy back (it broke the nightly load), fix it
+and deploy again, and the tool refused, saying the server copy had changed because "someone else deployed
+it". Your base record still pointed at your rolled-back version. Now a project version you restored
+yourself (`restored_by` in `catalog.object_versions` is your login), from before your version, no longer
+blocks your next deploy; a rollback by someone else still does. The lab checks that SSISDB records the
+restore under the login the tool sees.
+
 ## Runs
 
 | Depth | Actions run | Distinct states | Violations | Time (laptop) |
 |---|---|---|---|---|
 | 3 | 706 | 41 | 0 | 46 s |
 | 4 | 3162 | 184 | 0 | 3 min |
+| 5 | 12814 | 733 | 0 | 12 min |
 
 CI runs depth 4 on every push (`model-check` in `.github/workflows/ci.yml`).
 

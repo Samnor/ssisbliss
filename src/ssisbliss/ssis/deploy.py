@@ -44,6 +44,7 @@ class Plan:
     # For overwrite errors: the project version each base was taken at, and the project's versions.
     base_lsns: dict = field(default_factory=dict)
     versions: list = field(default_factory=list)
+    login: str = ""   # who is deploying: a version they restored themselves does not block them
 
     def check(self, name: str, status: str, detail: str = "") -> None:
         self.checks.append({"check": name, "status": status, "detail": detail})
@@ -199,6 +200,17 @@ def deploys_since(versions: list[dict], lsn: int | None, limit: int = 5) -> str:
     return ", ".join(parts) + more
 
 
+def _you_rolled_back(plan: Plan, base_lsn: int | None) -> bool:
+    """Is the project's current version one you restored yourself, from before your version? Then the server
+    copy is what your own rollback put back (deploys after it, by anyone, would have a newer lsn)."""
+    t = plan.target
+    if t is None or base_lsn is None or t.object_version_lsn >= base_lsn or not plan.login:
+        return False
+    current = next((v for v in plan.versions if v["object_version_lsn"] == t.object_version_lsn), None)
+    return bool(current and current.get("last_restored_time")
+                and str(current.get("restored_by") or "").lower() == plan.login.lower())
+
+
 def _check_overwrite(plan: Plan, name: str, server_sha: str, base_sha: str | None, overwrite: set[str]) -> None:
     """Refuse to replace a deployed package that changed since the version this copy started from."""
     if base_sha == server_sha:
@@ -206,6 +218,11 @@ def _check_overwrite(plan: Plan, name: str, server_sha: str, base_sha: str | Non
         return
     t = plan.target
     base_lsn = plan.base_lsns.get(name)
+    if base_sha is not None and _you_rolled_back(plan, base_lsn):
+        plan.check(f"overwrite:{name}", "ok", f"the server copy is lsn {t.object_version_lsn}, from before your version "
+                                             f"(lsn {base_lsn}), and you restored it yourself: nothing anyone deployed "
+                                             f"since is replaced")
+        return
     since = deploys_since(plan.versions, base_lsn) if plan.versions and base_lsn is not None else ""
     if since:
         who = sorted({v["created_by"] for v in plan.versions if v["object_version_lsn"] > base_lsn and v.get("created_by")})
@@ -262,6 +279,7 @@ def plan_packages(catalog: Catalog, folder: str, project: str, packages: list[tu
     plan.base_lsns = dict(base_lsns or {})
     if plan.base_lsns:
         plan.versions = catalog.versions(plan.target.project_id)   # type: ignore[union-attr]
+        plan.login = catalog.login()
 
     assert plan.target is not None
     server = plan.server_ispac = Ispac(catalog.get_project(folder, project))
@@ -332,6 +350,7 @@ def plan_project(catalog: Catalog, folder: str, project: str, source: Ispac, onl
     plan.base_lsns = dict(base_lsns or {})
     if plan.base_lsns:
         plan.versions = catalog.versions(plan.target.project_id)   # type: ignore[union-attr]
+        plan.login = catalog.login()
 
     assert plan.target is not None
     server = plan.server_ispac = Ispac(catalog.get_project(folder, project))
@@ -430,6 +449,7 @@ def plan_remove(catalog: Catalog, folder: str, project: str, names: list[str], b
     assert plan.target is not None
     plan.base_lsns = dict(base_lsns or {})
     plan.versions = catalog.versions(plan.target.project_id)
+    plan.login = catalog.login()
     server = plan.server_ispac = Ispac(catalog.get_project(folder, project))
     current = server.package_hashes()
     names = [next((c for c in current if c.lower() == n.lower()), n) for n in names]

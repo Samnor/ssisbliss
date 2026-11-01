@@ -846,3 +846,36 @@ def test_install_skill_for_copilot_and_vs_code(tmp_path, monkeypatch, capsys):
     name = _re.search(r"^name: (.+)$", head, _re.M).group(1).strip()
     desc = _re.search(r"^description: (.+)$", head, _re.M).group(1).strip()
     assert name == dest.parent.name and _re.fullmatch(r"[a-z0-9-]{1,64}", name) and len(desc) <= 1024
+
+
+def test_redeploy_after_rolling_back_your_own_deploy(cat, tmp_path, monkeypatch, capsys):
+    # Found by formal/model_check.py at depth 5: your own rollback looked like someone else's deploy.
+    t = ["--server", "x", "--folder", F, "--project", P]
+    run_cli(monkeypatch, capsys, cat, "pull", *t, "--out", str(tmp_path))
+    first = cat.project(F, P).object_version_lsn
+    (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=2))
+    deploy = ["deploy-packages", *t, str(tmp_path / "Load_A.dtsx")]
+    code, plan = run_cli(monkeypatch, capsys, cat, *deploy)
+    assert run_cli(monkeypatch, capsys, cat, *deploy, "--apply", "--plan-id", plan["plan_id"])[0] == EXIT_OK
+    cat.restore_project(F, P, first)                       # the deploy broke something: I roll it back
+    (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=3))   # and fix it
+    code, plan = run_cli(monkeypatch, capsys, cat, *deploy)
+    check = next(c for c in plan["checks"] if c["check"] == "overwrite:Load_A.dtsx")
+    assert code == EXIT_OK and plan["can_apply"] and "you restored it yourself" in check["detail"]
+
+
+def test_redeploy_after_someone_else_rolled_back_is_refused(cat, tmp_path, monkeypatch, capsys):
+    t = ["--server", "x", "--folder", F, "--project", P]
+    run_cli(monkeypatch, capsys, cat, "pull", *t, "--out", str(tmp_path))
+    first = cat.project(F, P).object_version_lsn
+    (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=2))
+    deploy = ["deploy-packages", *t, str(tmp_path / "Load_A.dtsx")]
+    code, plan = run_cli(monkeypatch, capsys, cat, *deploy)
+    run_cli(monkeypatch, capsys, cat, *deploy, "--apply", "--plan-id", plan["plan_id"])
+    cat.user = "LAB\\bob"
+    cat.restore_project(F, P, first)                       # bob took my deploy off: that is his call to undo
+    cat.user = "LAB\\me"
+    (tmp_path / "Load_A.dtsx").write_bytes(dtsx("Load_A.dtsx", revision=3))
+    code, plan = run_cli(monkeypatch, capsys, cat, *deploy)
+    assert code == EXIT_REFUSED and any(c["check"] == "overwrite:Load_A.dtsx" for c in plan["checks"]
+                                        if c["status"] == "error")

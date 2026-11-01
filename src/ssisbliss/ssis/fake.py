@@ -153,6 +153,7 @@ class FakeProject:
     history: dict[int, bytes] = field(default_factory=dict)
     created_by: dict = field(default_factory=dict)   # lsn -> who deployed that version (catalog.object_versions)
     restored: dict = field(default_factory=dict)     # lsn -> clock (next_lsn + 0.5) when last restored
+    restored_by: dict = field(default_factory=dict)  # lsn -> who last restored it (catalog.object_versions)
 
 
 class FakeCatalog:
@@ -191,6 +192,7 @@ class FakeCatalog:
                        for lsn in p.pop("history")}
             p["created_by"] = {int(k): v for k, v in p.get("created_by", {}).items()}
             p["restored"] = {int(k): v for k, v in p.get("restored", {}).items()}
+            p["restored_by"] = {int(k): v for k, v in p.get("restored_by", {}).items()}
             fp = FakeProject(**p, ispac=history[p["lsn"]], history=history)
             c.projects[(fp.folder, fp.name)] = fp
         c.path = path
@@ -308,7 +310,7 @@ class FakeCatalog:
     def versions(self, project_id: int) -> list[dict]:
         p = self._by_id(project_id)
         return [{"object_version_lsn": lsn, "created_by": p.created_by.get(lsn, p.deployed_by),
-                 "created_time": _clock(lsn), "restored_by": p.deployed_by if lsn in p.restored else None,
+                 "created_time": _clock(lsn), "restored_by": p.restored_by.get(lsn, p.deployed_by) if lsn in p.restored else None,
                  "last_restored_time": _clock(p.restored[lsn]) if lsn in p.restored else None}
                 for lsn in sorted(p.history, reverse=True)]
 
@@ -339,6 +341,7 @@ class FakeCatalog:
         p = self._p(folder, project)
         p.ispac, p.lsn = p.history[lsn], lsn
         p.restored[lsn] = self.next_lsn + 0.5
+        p.restored_by[lsn] = self.user
         self.save()
 
     def operation(self, operation_id: int) -> dict:

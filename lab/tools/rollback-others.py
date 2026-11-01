@@ -1,6 +1,6 @@
 """Rollback's "others deployed since" check against the real SSISDB, the parts the developer-login check
 does not cover: the login the tool sees matches object_versions.created_by, so your own deploys never count
-as someone else's; and a colleague's version that a restore already undid (labdev's, which the developer-login
+as someone else's, and a version you restored is recorded as restored by you; and a colleague's version that a restore already undid (labdev's, which the developer-login
 check restores away) no longer counts either."""
 import json
 from ssisbliss.ssis.catalog import SqlCatalog, connection_string
@@ -18,6 +18,13 @@ c.deploy_project(F, P, data)
 me = c.login()
 result = {"login": me, "created_by": sorted({v["created_by"] for v in c.versions(c.project(F, P).project_id)}),
           "own_rollback_errors": [x["detail"] for x in plan_rollback(c, F, P, first).errors]}
+# A redeploy after your own rollback is not blocked (deploy._you_rolled_back): SSISDB must record the restore
+# under the same login the tool sees.
+c.restore_project(F, P, first)
+current = next(v for v in c.versions(c.project(F, P).project_id) if v["object_version_lsn"] == first)
+result["restored_by"] = current.get("restored_by")
+result["restored_by_is_login"] = bool(current.get("last_restored_time")) and \
+    str(current.get("restored_by") or "").lower() == me.lower()
 c.conn.cursor().execute("EXEC catalog.delete_project @folder_name = ?, @project_name = ?", F, P)
 
 stage = c.project("SILVER", "SILVER")
@@ -32,6 +39,6 @@ if undone:
         rb = plan_rollback(c, "SILVER", "SILVER", max(below))
         result["undone"]["rollback_errors"] = [x["detail"] for x in rb.errors if x["check"] == "others"
                                                and f"lsn {undone['object_version_lsn']} " in x["detail"]]
-result["ok"] = (not result["own_rollback_errors"] and "undone" in result
+result["ok"] = (not result["own_rollback_errors"] and result["restored_by_is_login"] and "undone" in result
                 and result["undone"].get("rollback_errors") == [])
 print(json.dumps(result, indent=1))

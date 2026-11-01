@@ -260,6 +260,9 @@ def step(world: World, g: Ghost, kind: str, args: tuple) -> None:
         if r.code != 0 and after != before:
             raise Violation(f"refusal-atomic: a failed rollback changed the server: {r.doc}")
         check_change(g, who, before, after, f"rollback to lsn {to}")
+        if r.code == 0:   # what you restored yourself, you have seen
+            for n, h in after.items():
+                g.built_on[who][n].add(h)
         if own and r.code != 0:
             raise Violation(f"rollback-own: {who}'s rollback to lsn {to} failed: {r.doc}")
         return

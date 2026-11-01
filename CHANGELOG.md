@@ -6,6 +6,9 @@
   refusals change nothing, deploys and rollbacks of your own work go through) on every action sequence of
   two developers and a Visual Studio colleague up to a depth, against the real commands; CI runs depth 4.
   See [docs/verification.md](docs/verification.md).
+- A deploy after rolling back your own deploy is no longer refused as if someone else had deployed: the
+  project version you restored yourself, from before your version, is what your rollback put back.
+  Found by the model checker at depth 5; a rollback by someone else still blocks.
 
 ## 0.2.0 (2026-11-01)
 
