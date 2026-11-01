@@ -14,7 +14,7 @@ from functools import lru_cache
 import sqlglot
 from sqlglot import exp
 
-from .outline import flatten, outline
+from .model import Package, ProjectInfo
 from .sqlformat import CACHED, format_sql, tokenize
 from .sqlsites import Site, sites
 
@@ -195,9 +195,10 @@ def lint_package(file: str, data: bytes, max_line: int = 120, project_dir=None) 
     from .design import design_findings
     out: list[Finding] = []
     try:
-        found = sites(data)
-        tasks = flatten(outline(data)["tasks"])
-        out += design_findings(file, data, project_dir)
+        package = Package.parse(data, ProjectInfo.from_folder(project_dir) if project_dir else None)
+        found = sites(data, package)
+        tasks = [{"name": t.name, "path": t.path, "disabled": t.disabled} for t in package.walk()]
+        out += design_findings(file, package)
     except Exception as e:   # noqa: BLE001 - an unreadable package is a finding, not a crash
         return [Finding("SSB201", "warn", file, "", "", 1, 1, f"package could not be read: {type(e).__name__}: {e}")]
     for t in tasks:

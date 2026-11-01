@@ -104,6 +104,11 @@ alphabetical), with their kind (`sql`, `process`, `dataflow`, `script`, `sequenc
 task runs after (`success`/`failure`/`completion`, with expressions), and the package's
 connection managers with their expressions. Containers list their own tasks.
 
+Each connection also has the `database` it points at when that can be worked out (as `deps` does): for a
+file, from its expression over the project parameters in `Project.params` next to it (then `database_from`
+says it is a value in your files, which the catalog may replace); for a deployed package, from the
+catalog's values and the SSIS environments they reference.
+
 ## Status
 
 Unit-tested with msdb/SSISDB rows and packages taken from the lab, and run against SQL

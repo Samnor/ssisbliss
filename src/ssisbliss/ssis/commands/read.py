@@ -28,10 +28,13 @@ def cmd_inspect(a) -> Reply:
 
 
 def cmd_outline(a) -> Reply:
+    """Connections show their database: from your project's parameters and connection managers next to the
+    file, or for a deployed package from the catalog's values and environments."""
+    from ..model import ProjectInfo
     if a.file:
         if a.folder or a.package:
             raise ValueError("give a .dtsx file, or --folder/--project/--package for a deployed package, not both")
-        return reply(outline(Path(a.file).read_bytes()))
+        return reply(outline(Path(a.file).read_bytes(), ProjectInfo.from_folder(Path(a.file).parent)))
     if not (a.folder and a.project and a.package):
         raise ValueError("give a .dtsx file, or --folder, --project and --package")
     cat = _catalog(_env(a), a)
@@ -39,7 +42,10 @@ def cmd_outline(a) -> Reply:
     name = a.package if a.package.lower().endswith(".dtsx") else f"{a.package}.dtsx"
     if name not in ispac.package_names:
         raise ValueError(f"{name} is not in {a.folder}/{a.project}; it has {', '.join(ispac.package_names)}")
-    return reply(outline(as_editable(ispac.package(name))))
+    p = cat.project(a.folder, a.project)
+    info = ProjectInfo.from_ispac(ispac, "", cat.parameter_bindings(p.project_id), cat.environment_values(p.project_id)) \
+        if p is not None else None
+    return reply(outline(as_editable(ispac.package(name)), info))
 
 
 def _labels(places: list[tuple[str, str]]) -> list[str]:

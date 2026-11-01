@@ -14,11 +14,10 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from pathlib import Path
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from .outline import flatten, outline
+from .model import Component, Package, ProjectInfo, database_of, evaluate  # noqa: F401 - used through deps
 from .sqlformat import CACHED
 
 _PACKAGE_NAME = re.compile(r"<PackageName>\s*([^<]+?)\s*</PackageName>", re.I)
@@ -26,8 +25,6 @@ _PROJECT_PARAM = re.compile(r"\$Project::(\w+)")
 _WRITES = ("Insert", "Update", "Delete", "Merge", "Create", "TruncateTable", "Drop")
 
 
-_D = "{www.microsoft.com/SqlServer/Dts}"
-_S = "{www.microsoft.com/SqlServer/SSIS}"
 UNKNOWN_DB = "?"
 
 
@@ -87,152 +84,6 @@ def shared(reads: set[str], writes: set[str]) -> list[tuple[str, bool]]:
     return sorted(out.items())
 
 
-# ------------------------------------------------------------ which database a connection points at --
-
-@dataclass
-class ProjectInfo:
-    """What a package's connections can depend on outside the package: the project's parameter values and
-    connection managers. A value of None is set but not known (sensitive, or an environment not readable)."""
-    name: str = ""
-    values: dict[str, str | None] = field(default_factory=dict)    # parameter name, lower case
-    managers: list[bytes] = field(default_factory=list)            # the project's .conmgr files
-    design: bool = False      # your files: the catalog may set other parameter and connection manager values
-
-    @staticmethod
-    def params(data: bytes | None) -> dict[str, str | None]:
-        out: dict[str, str | None] = {}
-        if not data:
-            return out
-        try:
-            root = ET.fromstring(data)
-        except ET.ParseError:
-            return out
-        for p in root.iter(f"{_S}Parameter"):
-            props = {x.get(f"{_S}Name"): x.text or "" for x in p.iter(f"{_S}Property")}
-            out[(p.get(f"{_S}Name") or "").lower()] = None if props.get("Sensitive") == "1" else props.get("Value", "")
-        return out
-
-    @classmethod
-    def from_folder(cls, folder: Path, name: str = "") -> "ProjectInfo":
-        params = folder / "Project.params"
-        return cls(name, cls.params(params.read_bytes() if params.is_file() else None),
-                   [f.read_bytes() for f in sorted(folder.glob("*.conmgr"))], design=True)
-
-    @classmethod
-    def from_ispac(cls, ispac, name: str = "", bindings: list[dict] | None = None,
-                   environment: dict[str, str | None] | None = None) -> "ProjectInfo":
-        """The deployed project: Project.params, then the catalog's values (literal, or from the referenced
-        environment's variable; sensitive and unreadable ones are None)."""
-        values = cls.params(ispac.parts["Project.params"][1] if "Project.params" in ispac.parts else None)
-        for b in bindings or []:
-            if b.get("object_type") != 20:
-                continue
-            key = (b.get("parameter_name") or "").lower()
-            if b.get("value_type") == "R":
-                values[key] = (environment or {}).get((b.get("referenced_variable_name") or "").lower())
-            else:
-                values[key] = None if b.get("sensitive") else b.get("value")
-        managers = [ispac.parts[f][1] for f in ispac.connection_manager_files if f in ispac.parts]
-        return cls(name, values, managers)
-
-
-def _literal(text: str) -> str:
-    return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), text)
-
-
-def evaluate(expression: str, values: dict[str, str | None]) -> str | None:
-    """An SSIS expression made of string literals and @[...] references joined by +, or None when it is
-    anything else or a value it needs is not known. `values` keys: "$project::x", "$package::x", "user::x"."""
-    out, rest = [], expression.strip()
-    while rest.startswith("(") and rest.endswith(")"):
-        rest = rest[1:-1].strip()
-    for m in re.finditer(r'\s*(?:"((?:[^"\\]|\\.)*)"|@\[([^\]]+)\]|(\+))\s*|(.)', rest):
-        if m.group(4) is not None:
-            return None
-        if m.group(1) is not None:
-            out.append(_literal(m.group(1)))
-        elif m.group(2) is not None:
-            ref = m.group(2).lower()
-            ref = ref if "::" in ref else f"user::{ref}"
-            v = values.get(ref)
-            if v is None:
-                return None
-            out.append(v)
-    return "".join(out)
-
-
-def database_of(connection_string: str | None) -> str | None:
-    m = re.search(r"(?:Initial Catalog|Database)\s*=\s*([^;]+)", connection_string or "", re.I)
-    return m.group(1).strip().lower() if m else None
-
-
-def _values(root: ET.Element, project: ProjectInfo | None) -> dict[str, str | None]:
-    """$Project::, $Package:: and User:: values for evaluating this package's expressions."""
-    vals: dict[str, str | None] = {f"$project::{k}": v for k, v in (project.values if project else {}).items()}
-    for p in root.iter(f"{_D}PackageParameter"):
-        value = next((x.text or "" for x in p.findall(f"{_D}Property") if x.get(f"{_D}Name") == "ParameterValue"), None)
-        sensitive = p.get(f"{_D}Sensitive") in ("True", "1")
-        vals[f"$package::{(p.get(f'{_D}ObjectName') or '').lower()}"] = None if sensitive else value
-    for v in root.iter(f"{_D}Variable"):
-        if v.get(f"{_D}EvaluateAsExpression") in ("True", "1"):
-            continue
-        ns = (v.get(f"{_D}Namespace") or "User").lower()
-        value = v.find(f"{_D}VariableValue")
-        vals[f"{ns}::{(v.get(f'{_D}ObjectName') or '').lower()}"] = value.text or "" if value is not None else None
-    return vals
-
-
-def connection_databases(root: ET.Element, project: ProjectInfo | None
-                         ) -> tuple[dict[str, str | None], dict[str, str]]:
-    """Each connection manager (by refId, DTSID and name) -> the database it points at, or None; and, read
-    from your files, the ones whose database is a design value -> where it comes from."""
-    vals = _values(root, project)
-    design = project is not None and project.design
-    where = f" in {project.name}" if project and project.name else ""
-    managers = [(cm, "Package") for cm in root.iter(f"{_D}ConnectionManager")
-                if cm.find(f"{_D}ObjectData") is not None]
-    for data in (project.managers if project else []):
-        try:
-            managers.append((ET.fromstring(data), "Project"))
-        except ET.ParseError:
-            continue
-    out: dict[str, str | None] = {}
-    assumed: dict[str, str] = {}
-    for cm, scope in managers:
-        name = cm.get(f"{_D}ObjectName") or ""
-        inner = cm.find(f"{_D}ObjectData/{_D}ConnectionManager")
-        exprs = {e.get(f"{_D}Name"): e.text or "" for e in cm.findall(f"{_D}PropertyExpression")}
-        db: str | None = None
-        decided = False
-        source = ""
-        if scope == "Project":     # the catalog can set a project connection manager's properties
-            for prop in ("InitialCatalog", "ConnectionString"):
-                key = f"$project::cm.{name.lower()}.{prop.lower()}"
-                if key in vals:
-                    v = vals[key]
-                    db, decided = (v.lower() if prop == "InitialCatalog" and v else database_of(v)), True
-                    break
-        if not decided:
-            for prop in ("InitialCatalog", "ConnectionString"):
-                if prop in exprs:
-                    v = evaluate(exprs[prop], vals)
-                    db, decided = (v.lower() if prop == "InitialCatalog" and v else database_of(v)), True
-                    params = sorted(set(_PROJECT_PARAM.findall(exprs[prop])), key=str.lower)
-                    if params:
-                        source = " and ".join(f"$Project::{x}" for x in params) + where
-                    break
-        if not decided:
-            db = database_of(inner.get(f"{_D}ConnectionString") if inner is not None else None)
-        if scope == "Project" and not source:
-            source = f"project connection manager {name}{where}"
-        for key in (cm.get(f"{_D}refId"), cm.get(f"{_D}DTSID"), f"{scope}.ConnectionManagers[{name}]", name):
-            if key:
-                out.setdefault(key, db)
-                if design and source and db:
-                    assumed.setdefault(key, f"{source} = {db.upper()}")
-    return out, assumed
-
-
 @lru_cache(maxsize=CACHED)
 def sql_tables(sql: str) -> tuple[frozenset[str], frozenset[str], bool]:
     """(reads, writes, parsed) for a T-SQL text. Falls back to keyword patterns when it does not parse."""
@@ -280,38 +131,31 @@ def _pattern_tables(sql: str) -> tuple[set[str], set[str]]:
     return {r for r in reads if r} - writes, {w for w in writes if w}
 
 
-def _dataflow_tables(task_xml: ET.Element, databases: dict[str, str | None], assumed: dict[str, str] | None = None
-                     ) -> tuple[set[str], set[str], list[str], list[str], dict[str, str]]:
+def _dataflow_tables(components: list[Component]) -> tuple[set[str], set[str], list[str], list[str], dict]:
     """(reads, writes, unknown_sql, unknown_db, assumed) of a data flow's sources and destinations; assumed is
     ("r" or "w", table) -> where its design-value database comes from."""
     reads, writes, unknown, unknown_db, guessed = set(), set(), [], [], {}
-    assumed = assumed or {}
-    for comp in task_xml.iter("component"):
-        cls = (comp.get("componentClassID") or "").lower()
-        props = {p.get("name"): (p.text or "") for p in comp.iter("property")}
+    for comp in components:
+        cls, props = comp.cls.lower(), comp.properties
         is_dest = "destination" in cls
-        ref = comp.find("connections/connection")
-        key = (ref.get("connectionManagerRefId") or ref.get("connectionManagerID") or "") if ref is not None else ""
-        key = key.removesuffix(":external")
-        cm = re.sub(r".*\[(.*)\]$", r"\1", key)
-        db = databases.get(key, databases.get(cm))
-        source = assumed.get(key, assumed.get(cm))
+        db = comp.connection.database if comp.connection else None
+        source = comp.connection.assumed if comp.connection else None
         before = {("r", t) for t in reads} | {("w", t) for t in writes}
-        if ref is not None and db is None:
-            unknown_db.append(f"{comp.get('name')} (connection {cm})")
+        if comp.element.find("connections/connection") is not None and db is None:
+            unknown_db.append(f"{comp.name} (connection {comp.connection_name})")
         # OLE DB AccessMode: source 0 table, 1 table from variable, 2 SQL, 3 SQL from variable;
         # destination 0 table, 1 from variable, 3 fast load, 4 fast load from variable.
         mode = props.get("AccessMode", "0").strip() or "0"
         table = (props.get("OpenRowset") or props.get("TableOrViewName") or "").strip()
         command = props.get("SqlCommand", "").strip()
         if mode in (("1", "3") if not is_dest else ("1", "4")) and ("oledb" in cls or "OpenRowsetVariable" in props):
-            unknown.append(f"{comp.get('name')} (table or SQL from a variable)")
+            unknown.append(f"{comp.name} (table or SQL from a variable)")
         elif not is_dest and mode == "2" and command:
             r, w, ok = sql_tables(command)
             reads |= {qualified(x, db) for x in r}
             writes |= {qualified(x, db) for x in w}
             if not ok:
-                unknown.append(f"{comp.get('name')} (SQL did not parse; tables found by pattern)")
+                unknown.append(f"{comp.name} (SQL did not parse; tables found by pattern)")
         elif table:
             name = table_name(table.split("."))
             if name:
@@ -326,44 +170,40 @@ def _dataflow_tables(task_xml: ET.Element, databases: dict[str, str | None], ass
     return reads, writes, unknown, unknown_db, guessed
 
 
-def facts(name: str, data: bytes, project: ProjectInfo | None = None) -> Facts:
-    text = data.decode("utf-8-sig", errors="replace")
-    f = Facts(package=name, project=project.name if project else "")
+def facts(name: str, data: bytes | Package, project: ProjectInfo | None = None) -> Facts:
+    p = data if isinstance(data, Package) else Package.parse(data, project)
+    text = ET.tostring(p.root, encoding="unicode") if isinstance(data, Package) else data.decode("utf-8-sig", errors="replace")
+    f = Facts(package=name, project=p.project.name if p.project else "")
     f.calls = {m if m.lower().endswith(".dtsx") else f"{m}.dtsx" for m in _PACKAGE_NAME.findall(text)}
     f.parameters = set(_PROJECT_PARAM.findall(text))
-    root = ET.fromstring(data)
-    databases, assumed = connection_databases(root, project)
-    o = outline(data)
-    for t in flatten(o["tasks"]):
-        if t["kind"] != "sql":
+    for t in p.walk():
+        if t.kind != "sql" or t.sql_data is None:
             continue
-        dynamic = (t.get("expressions") or {}).get("SqlStatementSource")
-        if t.get("sql_source") or dynamic:
-            f.unknown_sql.append(f"{t['name']} (SQL from {'an expression' if dynamic else t['sql_source']})")
+        dynamic = t.expressions.get("SqlStatementSource")
+        if t.sql_source != "DirectInput" or dynamic:
+            f.unknown_sql.append(f"{t.name} (SQL from {'an expression' if dynamic else t.sql_source})")
             continue
-        if t.get("sql"):
-            db = databases.get(t.get("connection") or "")
-            if t.get("connection") in databases and db is None:
-                f.unknown_db.append(f"{t['name']} (connection {t['connection']})")
-            r, w, ok = sql_tables(t["sql"])
+        if t.sql:
+            db = t.connection.database if t.connection else None
+            if t.connection is not None and db is None:
+                f.unknown_db.append(f"{t.name} (connection {t.connection.name})")
+            r, w, ok = sql_tables(t.sql)
             f.reads |= {qualified(x, db) for x in r}
             f.writes |= {qualified(x, db) for x in w}
-            if source := assumed.get(t.get("connection") or ""):
+            if source := t.connection.assumed if t.connection else None:
                 f.assumed.update({qualified(x, db): source for x in r if x.count(".") < 2})
                 f.assumed_writes.update({qualified(x, db): source for x in w if x.count(".") < 2})
             if not ok:
-                f.unknown_sql.append(f"{t['name']} (SQL did not parse; tables found by pattern)")
-    for ex in root.iter():
-        if ex.tag.endswith("}ObjectData") or ex.tag == "ObjectData":
-            pipeline = ex.find("pipeline")
-            if pipeline is not None:
-                r, w, unknown, unknown_db, guessed = _dataflow_tables(pipeline, databases, assumed)
-                f.reads |= r
-                f.writes |= w
-                for (kind, table), source in guessed.items():
-                    (f.assumed if kind == "r" else f.assumed_writes).setdefault(table, source)
-                f.unknown_sql += unknown
-                f.unknown_db += unknown_db
+                f.unknown_sql.append(f"{t.name} (SQL did not parse; tables found by pattern)")
+    for t in p.every_task:
+        if t.components:
+            r, w, unknown, unknown_db, guessed = _dataflow_tables(t.components)
+            f.reads |= r
+            f.writes |= w
+            for (kind, table), source in guessed.items():
+                (f.assumed if kind == "r" else f.assumed_writes).setdefault(table, source)
+            f.unknown_sql += unknown
+            f.unknown_db += unknown_db
     return f
 
 

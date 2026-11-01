@@ -13,6 +13,8 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+from .model import Package
+
 DTS = "{www.microsoft.com/SqlServer/Dts}"
 SQLTASK = "{www.microsoft.com/sqlserver/dts/tasks/sqltask}"
 _ATTR = re.compile(rb'SQLTask:SqlStatementSource="([^"]*)"')
@@ -62,52 +64,30 @@ def encode_text(sql: str, literal_newlines: bool) -> bytes:
     return s.encode("utf-8")
 
 
-def _connections(root: ET.Element) -> dict[str, str]:
-    """DTSID -> connection type (OLEDB, ADO.NET, ODBC, ...)."""
-    out = {}
-    for cm in root.iter(f"{DTS}ConnectionManager"):
-        dtsid = cm.get(f"{DTS}DTSID")
-        if dtsid:
-            out[dtsid] = (cm.get(f"{DTS}CreationName") or "").split(":")[0].upper()
-    return out
-
-
-def _executables(root: ET.Element) -> list[tuple[ET.Element, str]]:
-    """Every executable in document order with its path."""
-    out = []
-    for e in root.iter(f"{DTS}Executable"):
-        out.append((e, e.get(f"{DTS}refId") or e.get(f"{DTS}ObjectName") or ""))
-    return out
-
-
-def sites(data: bytes) -> list[Site]:
-    root = ET.fromstring(data)
-    conns = _connections(root)
+def sites(data: bytes, package: Package | None = None) -> list[Site]:
+    """package: the same bytes already read (Package.parse(data)), to read them only once."""
+    p = package or Package.parse(data)
+    root = p.root
     found: list[Site] = []
-    sql_tasks = []
-    for e, path in _executables(root):
-        if e.get(f"{DTS}ExecutableType", "").lower() == "microsoft.executesqltask":
-            sql_tasks.append((e, path))
+    # every Execute SQL task in document order, event handlers included
+    sql_tasks = [t for t in p.every_task if t.type.lower() == "microsoft.executesqltask"]
     attrs = list(_ATTR.finditer(data))
     # Each Execute SQL task has one SqlTaskData with the attribute; they appear in the same document order.
-    with_attr = []
-    for e, path in sql_tasks:
-        td = _task_data(e)
-        if td is not None and td.get(f"{SQLTASK}SqlStatementSource") is not None:
-            with_attr.append((e, path, td))
-    for (e, path, td), m in zip(with_attr, attrs):
-        expressions = {x.get(f"{DTS}Name") for x in e.findall(f"{DTS}PropertyExpression")}
-        source_type = td.get(f"{SQLTASK}SqlStmtSourceType") or "DirectInput"
-        dynamic = ("expression" if "SqlStatementSource" in expressions else
-                   "" if source_type == "DirectInput" else source_type)
+    with_attr = [t for t in sql_tasks if t.sql_data is not None and t.sql is not None]
+    for t, m in zip(with_attr, attrs):
+        td = t.sql_data
+        dynamic = ("expression" if "SqlStatementSource" in t.expressions else
+                   "" if t.sql_source == "DirectInput" else t.sql_source)
+        path = t.path or t.name
+        conn = next((c for c in p.connections if c.dtsid and c.dtsid == t.connection_ref), None)
         found.append(Site(
-            path=path, task=e.get(f"{DTS}ObjectName") or path.rsplit("\\", 1)[-1], kind="execute_sql",
+            path=path, task=t.name or path.rsplit("\\", 1)[-1], kind="execute_sql",
             sql=decode_attribute(m.group(1)), start=m.start(1), end=m.end(1), encoding="attribute", dynamic=dynamic,
-            connection_type=conns.get(td.get(f"{SQLTASK}Connection") or "", ""),
+            connection_type=conn.type if conn else "",
             parameters=len(td.findall(f"{SQLTASK}ParameterBinding")),
             result_type=td.get(f"{SQLTASK}ResultType") or "ResultSetType_None",
             result_bindings=len(td.findall(f"{SQLTASK}ResultBinding")),
-            disabled=e.get(f"{DTS}Disabled") == "True"))
+            disabled=t.disabled))
     # Data-flow SQL: components in document order, their SqlCommand / SqlCommandParam properties.
     props = list(_PROP.finditer(data))
     comps = [(c, p) for c in root.iter("component") for p in c.iter("property") if p.get("name") in ("SqlCommand", "SqlCommandParam")]
@@ -121,11 +101,6 @@ def sites(data: bytes) -> list[Site]:
             sql=sql, start=m.start(3), end=m.end(3), encoding="text", literal_newlines=b"\n" in raw,
             extra={"property": m.group(2).decode(), "component": comp.get("componentClassID") or ""}))
     return found
-
-
-def _task_data(e: ET.Element) -> ET.Element | None:
-    data = e.find(f"{DTS}ObjectData")
-    return data.find(f"{SQLTASK}SqlTaskData") if data is not None else None
 
 
 def replace(data: bytes, changes: dict[int, str], all_sites: list[Site]) -> bytes:

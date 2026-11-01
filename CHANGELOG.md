@@ -22,6 +22,12 @@
   for each environment. A misspelled package gets the command with the right name, a name in several
   projects one command per project, and a folder without packages the folders that have them. The climb has
   a `deps` suite (three medallion layers whose files all say one development database).
+- One package model (`ssisbliss/ssis/model.py`): a package is read once into its connection managers (each
+  with the database it points at and where that comes from), its tasks in run order and its data flow
+  components, and `outline`, `lint`, the design rules, the data flow column checks, `format` and `deps` all
+  read it. Their output is unchanged, except that `outline` now shows each connection's `database`, for a
+  file from the project's parameters and for a deployed package from the catalog and its environments.
+  Tasks are put in run order in linear time: `lint` on a package with 2000 statements takes half the time.
 - A mistyped command suggests the commands that start with it first (`deploy`: `deploy-packages`,
   `deploy-project`).
 - A rollback plan says when it undoes only your own deploys; a build refused for its protection level

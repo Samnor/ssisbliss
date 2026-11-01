@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .dtsx import DTS
 from .lint import Finding
+from .model import Package, ProjectInfo
 
 _D = f"{{{DTS}}}"
 
@@ -79,37 +80,6 @@ def sql_column(name: str, sql_type: str, max_length: int, precision: int, scale:
                scale if t in ("numeric", "dbTimeStamp2", "dbTime2", "dbTimeStampoffset") else 0, required)
 
 
-def _database(connection_string: str | None) -> str | None:
-    m = re.search(r"(?:Initial Catalog|Database)\s*=\s*([^;]+)", connection_string or "", re.I)
-    return m.group(1).strip() if m else None
-
-
-def _connections(root: ET.Element, project_dir: Path | None) -> dict[str, tuple[str, str | None]]:
-    """refId / DTSID of each connection manager -> (name, database)."""
-    out: dict[str, tuple[str, str | None]] = {}
-    managers = list(root.iter(f"{_D}ConnectionManager"))
-    if project_dir:
-        for f in sorted(project_dir.glob("*.conmgr")):
-            try:
-                cm = ET.fromstring(f.read_bytes())
-            except ET.ParseError:
-                continue
-            cm.set(f"{_D}refId", f"Project.ConnectionManagers[{cm.get(f'{_D}ObjectName') or f.stem}]")
-            managers.append(cm)
-    for cm in managers:
-        inner = cm.find(f"{_D}ObjectData/{_D}ConnectionManager")
-        value = (cm.get(f"{_D}ObjectName") or "", _database(inner.get(f"{_D}ConnectionString") if inner is not None else None))
-        for key in (cm.get(f"{_D}refId"), cm.get(f"{_D}DTSID")):
-            if key:
-                out[key] = value
-    return out
-
-
-def _property(component: ET.Element, name: str) -> str | None:
-    p = component.find(f"properties/property[@name='{name}']")
-    return p.text if p is not None else None
-
-
 def _external(element: ET.Element | None) -> list[Col]:
     if element is None:
         return []
@@ -117,29 +87,27 @@ def _external(element: ET.Element | None) -> list[Col]:
                 int(c.get("scale") or 0)) for c in element.findall("externalMetadataColumns/externalMetadataColumn")]
 
 
-def endpoints(data: bytes, project_dir: Path | None = None) -> list[Endpoint]:
-    """Every OLE DB / ADO.NET source and destination in the package's data flows."""
-    root = ET.fromstring(data)
-    conns = _connections(root, project_dir)
+def endpoints(data: bytes | Package, project_dir: Path | None = None) -> list[Endpoint]:
+    """Every OLE DB / ADO.NET source and destination in the package's data flows. The database is the one
+    each connection's stored connection string names (what Visual Studio last evaluated)."""
+    p = data if isinstance(data, Package) else Package.parse(
+        data, ProjectInfo.from_folder(project_dir) if project_dir else None)
     out = []
-    for task in root.iter(f"{_D}Executable"):
-        if task.get(f"{_D}ExecutableType") != "Microsoft.Pipeline" and task.get(f"{_D}CreationName") != "Microsoft.Pipeline":
+    for task in p.every_task:
+        if task.type != "Microsoft.Pipeline" and task.element.get(f"{_D}CreationName") != "Microsoft.Pipeline":
             continue
-        path = task.get(f"{_D}refId") or ""
-        name = task.get(f"{_D}ObjectName") or path.rsplit("\\", 1)[-1]
-        for c in task.iter("component"):
-            cls = c.get("componentClassID", "")
+        name, path = task.name or task.path.rsplit("\\", 1)[-1], task.path
+        for comp in task.components:
+            c, cls = comp.element, comp.cls
             role = "source" if cls in SOURCES else "destination" if cls in DESTINATIONS else None
             if role is None:
                 continue
-            ref = c.find("connections/connection")
-            key = ref.get("connectionManagerRefId") or ref.get("connectionManagerID") if ref is not None else None
-            key = (key or "").removesuffix(":external")
-            conn, database = conns.get(key, (re.sub(r".*\[(.*)\]$", r"\1", key), None))
-            mode = _property(c, "AccessMode") or "0"
-            table = _property(c, "OpenRowset") or _property(c, "TableOrViewName")
-            sql = _property(c, "SqlCommand")
-            e = Endpoint(name, path, c.get("name", ""), role, conn, database)
+            conn = comp.connection_name
+            database = comp.connection.stored_database if comp.connection else None
+            mode = comp.prop("AccessMode") or "0"
+            table = comp.prop("OpenRowset") or comp.prop("TableOrViewName")
+            sql = comp.prop("SqlCommand")
+            e = Endpoint(name, path, comp.name, role, conn, database)
             if role == "source":
                 output = next((o for o in c.findall("outputs/output") if o.get("isErrorOut") != "true"), None)
                 e.columns = _external(output)
