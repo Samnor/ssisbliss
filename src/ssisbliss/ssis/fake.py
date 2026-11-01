@@ -201,7 +201,8 @@ class FakeCatalog:
         c.execution_rows = ex.get("rows", [])
         c.event_rows, c.failed_rows, c.parameter_rows = (
             {int(k): v for k, v in ex.get(part, {}).items()} for part in ("events", "failed", "parameters"))
-        if "--apply" in sys.argv and c.scheduled:
+        from .commands.common import _argv   # the command being run, also when it comes over MCP
+        if ("--apply" in sys.argv or "--apply" in _argv) and c.scheduled:
             c._run_scheduled()
         return c
 

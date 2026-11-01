@@ -29,6 +29,14 @@ just returned. Call `guide` once for the rules and recipes.
 """
 
 
+def instructions() -> str:
+    """How to use the tools, and the skill's rules: an agent over MCP has no skill and may never call guide."""
+    from .commands.skill import skill_text
+    text = skill_text()
+    start = text.index("## Rules")
+    return INSTRUCTIONS + "\n" + text[start:text.index("\n## ", start + 1)].strip() + "\n"
+
+
 def _tool_name(command: str) -> str:
     return command.replace("-", "_")
 
@@ -65,7 +73,8 @@ def tools() -> list[dict]:
         text = summary + (f". {sp.description}" if sp.description and sp.description not in summary else "")
         if changes:
             text += (". Changes the server only with apply=true and plan_id: call it first without apply, read the "
-                     "plan's checks, then call it again with apply=true and the plan_id it returned")
+                     "plan's checks, then call it again with apply=true and the plan_id it returned. A refused plan is the "
+                     "answer: tell the developer; never commit, push or use overwrite to get past it")
         out.append({"name": _tool_name(name), "description": text, "inputSchema": _schema(sp),
                     "annotations": {"title": name, "readOnlyHint": not changes and name not in WRITES_FILES,
                                     "destructiveHint": changes, "openWorldHint": False}})
@@ -135,7 +144,7 @@ def handle(msg: dict, state: dict) -> dict | None:
         wanted = params.get("protocolVersion")
         state["protocol"] = wanted if wanted in PROTOCOLS else PROTOCOLS[0]
         result: dict = {"protocolVersion": state["protocol"], "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {"name": "ssisbliss", "version": __version__}, "instructions": INSTRUCTIONS}
+                        "serverInfo": {"name": "ssisbliss", "version": __version__}, "instructions": instructions()}
     elif method == "ping":
         result = {}
     elif method == "tools/list":
