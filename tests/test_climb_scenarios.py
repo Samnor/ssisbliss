@@ -427,3 +427,28 @@ def test_field_scenarios_can_be_answered_read_only(tmp_path):
                      "STAGE/Stage_Customer.dtsx")
     assert code == 0 and "--apply --plan-id" in plan["next"][0] and plan["apply_when"]
     assert grade(s, w, "It would replace Stage_Customer on stage").outcome
+
+
+def test_architecture_climb_reads_cycles_and_only_trusts_clear_structure():
+    import arch
+    assert arch._cycles({"a": {"b"}, "b": {"c"}, "c": {"a"}, "d": {"a"}}) == [["a", "b", "c"]]
+    assert arch.structure()["modules_in_cycles"] == 0    # the package stays free of import cycles
+    base = {"modules_in_cycles": 9, "late_imports": 59, "hub_links": 19, "functions_over_50_lines": 20, "mutable_globals": ["x"]}
+    assert arch.clearly_better({**base, "modules_in_cycles": 0}, base) == ["modules_in_cycles 9 -> 0"]
+    assert arch.clearly_better(base, base) == []
+    assert arch.clearly_better({**base, "modules_in_cycles": 0, "hub_links": 30}, base) == []     # better here, worse there
+
+
+def test_architecture_climb_keeps_on_the_rule_fixed_in_advance():
+    import arch
+
+    def card(scores):
+        return {"cards": {"a": {"by_scenario": {f"{k}-0": {"score": v} for k, v in scores.items()}}},
+                "structure": {"modules_in_cycles": 9, "late_imports": 59, "hub_links": 19, "functions_over_50_lines": 20,
+                              "mutable_globals": []}}
+    best = card({"t1": 50, "t2": 50, "t3": 50})
+    assert arch.verdict(card({"t1": 60, "t2": 61, "t3": 59}), best)["why"] == "agents did better"
+    tied = card({"t1": 50, "t2": 51, "t3": 49})
+    assert not arch.verdict(tied, best)["keep"]                  # no better, and structure the same: reverted
+    tied["structure"]["modules_in_cycles"] = 0
+    assert arch.verdict(tied, best)["why"].startswith("structure alone")

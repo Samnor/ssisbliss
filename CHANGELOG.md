@@ -30,6 +30,8 @@
   Tasks are put in run order in linear time: `lint` on a package with 2000 statements takes half the time.
 - `executions`: a failing task says which `database` its connection pointed at in that run (a failing data
   flow component, its own connection's), worked out from the run's parameter values, overrides included.
+- `lint --rules` reads no packages: it used to lint everything below the current folder first, and exit 2 when
+  those packages had errors.
 - A mistyped command suggests the commands that start with it first (`deploy`: `deploy-packages`,
   `deploy-project`).
 - A rollback plan says when it undoes only your own deploys; a build refused for its protection level

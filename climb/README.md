@@ -87,3 +87,14 @@ an agent run (which would only add noise). A change to the skill always goes to 
 Every proposal's diff is saved as `iter-N.patch` in the run
 folder, kept or not. Kept changes are commits on
 a `climb/<id>` branch, checked with `lab/lab.py verify` before they are merged.
+
+## Climbing the architecture
+
+`climb/arch.py` asks whether a design change makes the code cheaper to change. Small agents get a clone of the
+repository and a feature request; tests they never see grade the result through the CLI. A run scores 100 for
+a working result, minus one point per tool call. Structure (import cycles, globals, hub size) is a second
+opinion, and the guards are all tests, the model checker, the benchmarks and unchanged `commands` and `guide`.
+A change stays when agents gain at least 5 points at z >= 1.64, or on structure alone when they are no worse,
+and the report says which. `--held-out` runs tasks written after the change, to catch a gain that only fits the
+tasks it was made next to. arch.py holds the hidden tests, so keep it out of the commits being measured (the
+tasks are in the repository now: for a new climb, write new ones). Results: docs/agent-evaluation.md.
