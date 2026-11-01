@@ -25,6 +25,14 @@ commands` without it) or as MCP tools (`ssisbliss mcp`); every command keeps one
 `ok`, `error_kind` and `next`: [docs/agents.md](docs/agents.md). How well AI agents (Claude Sonnet and Haiku,
 Codex with GPT Luna) use them: [docs/agent-evaluation.md](docs/agent-evaluation.md).
 
+## Verification
+
+[`formal/model_check.py`](formal/model_check.py) runs every sequence of deploys, plans, late applies,
+rollbacks and pulls by two developers and a Visual Studio colleague, up to a depth, against the real
+commands, and checks that nobody's deploy is lost unseen, that a plan id binds the server version, that a
+refused command changes nothing, and that the deploys that should go through do:
+[docs/verification.md](docs/verification.md). CI runs it on every push.
+
 ## Lab
 
 [`lab/`](lab/PLAN.md) creates an on-demand Windows + SQL Server environment on AWS that

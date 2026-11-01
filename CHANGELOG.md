@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `formal/model_check.py`: bounded model checking of the core promises (no lost work, plan binding,
+  refusals change nothing, deploys and rollbacks of your own work go through) on every action sequence of
+  two developers and a Visual Studio colleague up to a depth, against the real commands; CI runs depth 4.
+  See [docs/verification.md](docs/verification.md).
+
 ## 0.2.0 (2026-11-01)
 
 Changes that scripts may notice: a usage error (unknown command or option, missing argument) now exits 5

@@ -45,3 +45,13 @@ jobs:
           /tmp/v/bin/ssisbliss --help > /dev/null
           /tmp/v/bin/ssisbliss chain --help > /dev/null
           /tmp/v/bin/ssisbliss install-skill --print | grep -q "name: ssisbliss"
+
+  model-check:
+    # Every action sequence up to depth 4 against the real commands (formal/model_check.py, docs/verification.md).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run python formal/model_check.py --depth 4
