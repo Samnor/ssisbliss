@@ -2,9 +2,11 @@
 """Hill climb ssisbliss: the tools, their messages and the ssisbliss skill.
 
 Each iteration: an agent reads the latest scorecards and transcripts and makes ONE focused change to
-the tools or the skill; tests must pass; every scenario is run again with every field agent; the change
-is kept (committed) if the average score per run rose by at least --min-gain with no more safety
-violations, otherwise reverted. Speed and scale are measured too (climb/perf.py: deterministic
+the tools or the skill; tests must pass; every scenario is run again with every field agent the change can
+reach (one to the MCP server alone reaches only the +mcp agents); the change is kept (committed) if the
+agents did better beyond noise with no more safety violations, otherwise reverted. "Beyond noise" is a
+paired test: per agent and scenario, the change in average score; their mean must be at least --min-gain
+and --z standard errors above zero. A result just short of that is run once more and judged on both runs. Speed and scale are measured too (climb/perf.py: deterministic
 benchmarks at real sizes): a change that makes a benchmark clearly slower is reverted whatever the
 agents scored, and a change that makes one clearly faster is kept if the agents did not get worse
 (a faster change that scores just below that is run once more and judged on the average of both runs).
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -144,9 +147,44 @@ def measure(out: Path, a) -> dict:
     return perf.run(out, repeat=a.perf_repeat)
 
 
-# A clearly faster change whose agents scored up to this many --min-gain below the best is run once more
-# and judged on the average (one run of 144 scenarios moved by about 1.4 points per run on noise alone).
-RECHECK = 6
+# z of a result worth running once more: it may clear --z with more runs. A clearly faster change is kept
+# unless the agents did clearly worse (z below -NOT_WORSE), and rechecked down to -2 * NOT_WORSE.
+RECHECK_Z, NOT_WORSE = 0.8, 1.0
+
+
+def scenario_scores(cards: list[dict]) -> dict[str, list[float]]:
+    """One agent's scores per scenario, over one or more evaluations (by_scenario keys are "name-i")."""
+    out: dict[str, list[float]] = {}
+    for card in cards:
+        for key, r in card["by_scenario"].items():
+            out.setdefault(key.rsplit("-", 1)[0], []).append(r["score"])
+    return out
+
+
+def paired(new: dict[str, list[dict]], best: dict[str, dict]) -> dict:
+    """Did the agents in `new` (agent -> its evaluations) do better than in `best`? Per agent and scenario,
+    the change in average score; the mean of those (points per run), its standard error and z. Scenarios
+    differ far more than runs do, so pairing by scenario leaves only the noise that decides."""
+    diffs = []
+    for agent, cards in new.items():
+        after, before = scenario_scores(cards), scenario_scores([best[agent]])
+        diffs += [sum(after[s]) / len(after[s]) - sum(before[s]) / len(before[s]) for s in after if s in before]
+    n = len(diffs)
+    gain = sum(diffs) / n if n else 0.0
+    sd = (sum((d - gain) ** 2 for d in diffs) / (n - 1)) ** 0.5 if n > 1 else 0.0
+    se = sd / n ** 0.5 if n else 0.0
+    z = gain / se if se else (0.0 if gain == 0 else math.copysign(math.inf, gain))
+    return {"gain": round(gain, 2), "se": round(se, 2), "z": round(z, 2), "pairs": n}
+
+
+def reached(agents: list[str], files: list[str]) -> list[str]:
+    """The agents a change can reach. The skill reaches them all (`guide` and the MCP server's instructions
+    carry it) and so does every command's output, but the MCP server's own instructions and tool
+    descriptions only reach the agents that use it; the others would only add noise."""
+    code = [f for f in files if f.startswith("src/")]
+    if code and all(f == "src/ssisbliss/ssis/mcp.py" for f in code):
+        return [ag for ag in agents if ag.endswith("+mcp")] or agents
+    return agents
 
 
 def speed_only(files: list[str]) -> bool:
@@ -155,19 +193,20 @@ def speed_only(files: list[str]) -> bool:
     return all(not f.startswith("src/ssisbliss/skills/") for f in files)
 
 
-def decide(new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: float) -> tuple[bool, str]:
-    """Keep a change? (verdict, reason)."""
+def decide(stats: dict, new: dict, best: dict, new_perf: dict, best_perf: dict, min_gain: float, z: float,
+           recheck: bool = True) -> tuple[bool, str]:
+    """Keep a change? (verdict, reason). `stats` is paired()'s; `new` and `best` the totals of the agents
+    that ran, for their safety violations."""
     worse, faster = perf.compare(new_perf, best_perf)
     if new["safety_violations"] > best["safety_violations"]:
         return False, "more safety violations"
     if worse:
         return False, "slower: " + "; ".join(worse)
-    gain = new["total"] / max(1, new["runs"]) - best["total"] / max(1, best["runs"])   # per run: suites grow
-    if gain >= min_gain:
+    if stats["gain"] >= min_gain and stats["z"] >= z:
         return True, "agents did better" + (" and faster: " + "; ".join(faster) if faster else "")
-    if faster and gain >= -2 * min_gain:
+    if faster and stats["z"] >= -NOT_WORSE:
         return True, "faster, agents no worse (within noise): " + "; ".join(faster)
-    if faster and gain >= -RECHECK * min_gain:
+    if recheck and ((stats["gain"] >= min_gain and stats["z"] >= RECHECK_Z) or (faster and stats["z"] >= -2 * NOT_WORSE)):
         return False, "recheck"
     return False, "not enough better"
 
@@ -176,12 +215,25 @@ def average(a: dict, b: dict) -> dict:
     return {k: round((a[k] + b[k]) / 2, 2) for k in a}
 
 
-def evaluate(out: Path, agents: list[str], a) -> dict[str, dict]:
+def evaluate(out: Path, agents: list[str], a, carry: tuple[Path, dict[str, dict]] | None = None) -> dict[str, dict]:
+    """Run `agents` on every scenario. `carry` (an earlier evaluation's dir and cards) fills in the agents a
+    change cannot reach: their runs are linked, not repeated, so the next proposer still reads them."""
+    out.mkdir(parents=True, exist_ok=True)
+    run = [ag for ag in agents if not carry or ag not in carry[1]]
     # The agents run at the same time (--jobs runs each): an evaluation takes as long as the slowest agent.
-    with ThreadPoolExecutor(len(agents)) as pool:
-        cards = dict(zip(agents, pool.map(lambda agent: run_suite(
+    with ThreadPoolExecutor(max(1, len(run))) as pool:
+        ran = dict(zip(run, pool.map(lambda agent: run_suite(
             out / agent.replace(":", "-"), repeats=a.repeats, model=agent, jobs=a.jobs, budget=a.budget,
-            suite=a.suite), agents)))
+            suite=a.suite), run)))
+    cards = {}
+    for agent in agents:
+        if agent in ran:
+            cards[agent] = ran[agent]
+        else:
+            link = out / agent.replace(":", "-")
+            if not link.exists():
+                link.symlink_to((carry[0] / agent.replace(":", "-")).resolve())
+            cards[agent] = carry[1][agent]
     (out / "matrix.json").write_text(json.dumps(cards, indent=2))
     (out / "matrix.md").write_text(matrix_markdown(cards, a.repeats))
     return cards
@@ -207,8 +259,10 @@ def main() -> None:
     p.add_argument("--iterations", type=int, default=3)
     p.add_argument("--agents", default=DEFAULT_AGENTS, help="field agents, comma separated (see matrix.py)")
     p.add_argument("--repeats", type=int, default=2, help="runs per scenario per agent per evaluation")
-    p.add_argument("--min-gain", type=float, default=0.35,
-                   help="points the average score per run (out of 100) must rise by to keep a change: noise control")
+    p.add_argument("--min-gain", type=float, default=0.25,
+                   help="points the average score per run (out of 100) must rise by at least to keep a change")
+    p.add_argument("--z", type=float, default=1.64,
+                   help="standard errors the paired gain must clear to keep a change (1.64: about 95%% one-sided)")
     p.add_argument("--proposer", default="opus", help="model proposing tool changes")
     p.add_argument("--jobs", type=int, default=6, help="runs at a time per agent")
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
@@ -290,19 +344,31 @@ def main() -> None:
                 best_perf = new_perf
                 continue
             note(f"## iter {i}: faster, but output changed ({'; '.join(same['differences'][:3])}): agents decide")
-        cards = evaluate(run_dir, agents, a)
+        hit = reached(agents, files)
+        cards = evaluate(run_dir, agents, a, carry=(best_dir, {ag: best_cards[ag] for ag in agents if ag not in hit}))
+        runs = {ag: [cards[ag]] for ag in hit}
+        stats = paired(runs, best_cards)
+        before = totals({ag: best_cards[ag] for ag in hit})
+        new_hit = totals({ag: cards[ag] for ag in hit})
+        keep, why = decide(stats, new_hit, before, new_perf, best_perf, a.min_gain, a.z)
+        if why == "recheck":                        # close: the agents it reaches run once more, judged on both
+            again = evaluate(run_dir / "recheck", hit, a)
+            for ag in hit:
+                runs[ag].append(again[ag])
+            first, stats = stats, paired(runs, best_cards)
+            new_hit = average(new_hit, totals(again))
+            note(f"## iter {i}: close ({first['gain']:+} per run, z {first['z']}); "
+                 f"{', '.join(hit)} run again: {stats['gain']:+} per run, z {stats['z']} on both")
+            keep, why = decide(stats, new_hit, before, new_perf, best_perf, a.min_gain, a.z, recheck=False)
+            why = "on two runs: " + why
         new = totals(cards)
-        keep, why = decide(new, best, new_perf, best_perf, a.min_gain)
-        if why == "recheck":                        # faster, scores just below noise: run the agents once more
-            again = totals(evaluate(run_dir / "recheck", agents, a))
-            note(f"## iter {i}: faster but {describe(new)}; agents run again: {describe(again)}")
-            new = average(new, again)
-            keep, why = decide(new, best, new_perf, best_perf, a.min_gain)
-            why = "on the average of two runs: " + ("not enough better" if why == "recheck" else why)
         verdict = "kept" if keep else "reverted"
-        per_agent = "; ".join(f"{ag} {best_cards[ag]['total']}->{cards[ag]['total']}" for ag in agents if ag in best_cards)
-        note(f"## iter {i}: {verdict} ({why}) — {title}\n\n{describe(best)} -> {describe(new)}\n{per_agent}\n"
-             f"files: {', '.join(files)}\n\n{perf.markdown(new_perf, best_perf)}")
+        per_agent = "; ".join(f"{ag} {best_cards[ag]['total']}->{cards[ag]['total']}" + ("" if ag in hit else " (not reached)")
+                              for ag in agents if ag in best_cards)
+        note(f"## iter {i}: {verdict} ({why}) — {title}\n\n{describe(best)} -> {describe(new)}\n"
+             f"paired, {len(hit)} agent(s) reached: {stats['gain']:+} per run ± {stats['se']} (z {stats['z']}, "
+             f"{stats['pairs']} agent-scenario pairs)\n{per_agent}\nfiles: {', '.join(files)}\n\n"
+             f"{perf.markdown(new_perf, best_perf)}")
         if verdict == "kept":
             git("add", "-A")
             git("commit", "-q", "-m", f"climb: {title}\n\n{summary}\n\nScore {best['total']} -> {new['total']} "

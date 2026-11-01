@@ -320,25 +320,53 @@ def test_vscode_parity_compares_versions():
 
 
 def test_climb_keeps_and_reverts_on_speed_and_agents():
-    # 100 runs: a gain of 0.5 points per run is 50 points in total
     import climb as c
     import perf as pf
     best_perf = {"status": {"seconds": 3.0}, "activity": {"seconds": 5.0, "git_processes": 500}}
-    best = {"total": 11000, "runs": 100, "safety_violations": 0}
+    best = {"safety_violations": 0}
     same, faster = dict(best_perf), {"status": {"seconds": 1.0}, "activity": {"seconds": 2.0, "git_processes": 60}}
     slower = {"status": {"seconds": 4.5}, "activity": {"seconds": 5.0, "git_processes": 500}}
     more_git = {"status": {"seconds": 3.0}, "activity": {"seconds": 5.0, "git_processes": 700}}
     assert pf.compare(slower, best_perf)[0] and pf.compare(more_git, best_perf)[0]
     assert not pf.compare({"status": {"seconds": 3.1}, "activity": {"seconds": 5.1, "git_processes": 505}}, best_perf)[0]
-    assert c.decide({"total": 11100, "runs": 100, "safety_violations": 0}, best, same, best_perf, 0.5)[0]            # agents better
-    assert not c.decide({"total": 11100, "runs": 100, "safety_violations": 0}, best, slower, best_perf, 0.5)[0]      # but slower
-    assert not c.decide({"total": 11100, "runs": 100, "safety_violations": 1}, best, same, best_perf, 0.5)[0]        # less safe
-    assert c.decide({"total": 10950, "runs": 100, "safety_violations": 0}, best, faster, best_perf, 0.5)[0]          # faster, noise
-    assert c.decide({"total": 10800, "runs": 100, "safety_violations": 0}, best, faster, best_perf, 0.5) == (False, "recheck")
-    assert c.decide({"total": 10650, "runs": 100, "safety_violations": 0}, best, faster, best_perf, 0.5) == (False, "not enough better")
-    assert c.decide({"total": 10800, "runs": 100, "safety_violations": 0}, best, same, best_perf, 0.5) == (False, "not enough better")
+
+    def decide(gain, z, perf_now=same, violations=0, **kw):
+        return c.decide({"gain": gain, "z": z}, {"safety_violations": violations}, best, perf_now, best_perf, 0.25, 1.64, **kw)
+    assert decide(1.0, 2.0)[0]                                                    # better beyond noise
+    assert decide(1.0, 1.0) == (False, "recheck")                                 # better, but could be noise
+    assert decide(1.0, 1.0, recheck=False) == (False, "not enough better")
+    assert decide(0.1, 3.0) == (False, "not enough better")                       # sure, but too small to matter
+    assert decide(-0.5, 0.3) == (False, "not enough better")
+    assert not decide(1.0, 2.0, slower)[0]                                        # but slower
+    assert not decide(1.0, 2.0, violations=1)[0]                                  # less safe
+    assert decide(-0.5, -0.8, faster)[0]                                          # faster, agents within noise
+    assert decide(-1.0, -1.5, faster) == (False, "recheck")
+    assert decide(-2.0, -2.5, faster) == (False, "not enough better")
     assert c.average({"total": 10800, "steps": 700}, {"total": 11000, "steps": 701}) == {"total": 10900, "steps": 700.5}
-    assert not c.decide({"total": 11020, "runs": 100, "safety_violations": 0}, best, same, best_perf, 0.5)[0]        # within noise
+
+
+def test_climb_pairs_runs_by_scenario():
+    import climb as c
+
+    def card(**scores):   # scenario -> its runs' scores
+        return {"by_scenario": {f"{s}-{i}": {"score": x} for s, xs in scores.items() for i, x in enumerate(xs)}}
+    best = {"a": card(easy=[96, 96], hard=[10, 30]), "b": card(easy=[94, 94], hard=[50, 50])}
+    # the hard scenario differs by 40 points between agents; pairing by scenario keeps that out of the noise
+    s = c.paired({"a": [card(easy=[98, 98], hard=[22, 22])], "b": [card(easy=[96, 96], hard=[52, 52])]}, best)
+    assert s["gain"] == 2.0 and s["pairs"] == 4 and s["z"] == float("inf")      # +2 everywhere: no doubt
+    s = c.paired({"a": [card(easy=[96, 96], hard=[10, 30]), card(easy=[100, 100], hard=[20, 20])]}, best)
+    assert s["gain"] == 1.0 and s["pairs"] == 2                                  # two evaluations pooled
+    assert c.paired({"a": [best["a"]]}, best) == {"gain": 0.0, "se": 0.0, "z": 0.0, "pairs": 2}
+
+
+def test_climb_runs_only_the_agents_a_change_reaches():
+    import climb as c
+    agents = ["claude:haiku+skill", "codex:gpt-6-luna+skill", "claude:haiku+mcp", "codex:gpt-6-luna+mcp"]
+    mcp_only = ["src/ssisbliss/ssis/mcp.py", "tests/test_contract.py", "docs/agents.md"]
+    assert c.reached(agents, mcp_only) == ["claude:haiku+mcp", "codex:gpt-6-luna+mcp"]
+    assert c.reached(agents, ["src/ssisbliss/skills/ssisbliss/SKILL.md"]) == agents   # guide and the MCP rules carry it
+    assert c.reached(agents, ["src/ssisbliss/ssis/mcp.py", "src/ssisbliss/ssis/cli.py"]) == agents
+    assert c.reached(["claude:haiku+skill"], mcp_only) == ["claude:haiku+skill"]       # nobody else to judge it
 
 
 def test_climb_saves_each_proposal_as_a_patch(tmp_path, monkeypatch):

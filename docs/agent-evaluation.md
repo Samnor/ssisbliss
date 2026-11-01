@@ -26,8 +26,14 @@ stage? don't change anything", "is prod the same as my repo?", "the finance dash
 numbers"), written after the features rather than for them. `climb/matrix.py` runs them with several
 agents; `climb/climb.py` hill climbs the tools with all of them as field agents. An agent named
 `claude:haiku+mcp` (or `codex:gpt-6-luna+mcp`) uses the tools through `ssisbliss mcp` instead of the shell ([agents.md](agents.md));
-its tool calls are graded and counted like commands. The climb runs every scenario twice per agent and
-judges a change on the average score per run. Every change kept by a climb is also run
+its tool calls are graded and counted like commands. The climb runs every scenario twice per agent, the
+agents at the same time, and judges a change only on the agents it can reach (one to the MCP server alone
+reaches the `+mcp` agents). It keeps a change when the agents did better beyond noise: per agent and
+scenario, the change in average score; their mean must be at least 0.25 points per run and 1.64 standard
+errors above zero. A result just short of that is run once more and judged on both runs. Replayed on the
+two climbs of 2026-11-01, one evaluation's standard error was 0.5 to 1.1 points per run: of the three
+changes those climbs kept on a fixed 0.35-point gain, two would have been run again and one reverted, and
+the MCP lint guidance they reverted would have been run again. Every change kept by a climb is also run
 against the real SQL Server 2019 in the lab (`lab/lab.py verify`).
 
 ## The ssisbliss skill
