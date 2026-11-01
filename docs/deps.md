@@ -42,9 +42,15 @@ layer's `dbo.Customer` is a different table. The database is:
    project references several environments that disagree, or the value is sensitive, it is not known.
 
 A connection whose database cannot be worked out is listed in the package's `unknown_database`; its tables
-match others by `schema.table` only, and such links carry `unsure` (dotted in the diagram). Your files only
-have the design values of parameters: when the deployed values differ (a parameter bound to an environment),
-graph the deployed projects with `--env` to see the databases the packages really use.
+match others by `schema.table` only, and such links carry `unsure` (dotted in the diagram).
+
+Your files only have the design values of parameters and project connection managers, and the catalog can
+set others when the project is deployed (often from an SSIS environment). So, read from your files, a link
+through such a database is only sure between packages that take it from the same parameter (or project
+connection manager) of the same project; any other is `unsure`, and its `why_unsure` names the values. A
+common case: every layer's parameters say the same development database in the files, so every layer's
+`dbo.Customer` looks like one table. Graph the deployed projects with `--env` to see the databases the
+packages really use; `next` has the command for each environment in `ssisbliss.toml`.
 
 SQL built at run time (from a variable, an expression or a file), temp tables and table variables cannot be
 followed. A package with such SQL is marked `unknown_sql` (dashed in the diagram) and the output's `note`
@@ -64,9 +70,14 @@ does not have is marked `missing`.
 
 ## The JSON
 
+- `summary`: the graph in one line: the packages it is fed by and feeds, the ones reached only through
+  unsure links apart, and whether only one project was read;
+- `next`: what to run before relying on the graph: the projects next to the one read (`--dir`), the deployed
+  projects (`--env ... --all-projects`) when links are unsure or only one project was read; and on a refusal,
+  the command with the right package name or `--project`;
 - `nodes`: each package with its `role` (`upstream`, `this`, `downstream`, or `both`), `steps` from the
-  package, its `project` when several are read, and `unknown_sql`, `unknown_database` or `missing` when they
-  apply; upstream first;
+  package, its `project` when several are read, and `unknown_sql`, `unknown_database`, `missing` or `unsure`
+  (reached only through unsure links: it may not be linked at all) when they apply; upstream first;
 - `edges`: `from` runs or writes before `to`, with `kind`, the `tables` and `via` in words, e.g.
   "Stage_SalesOrder.dtsx reads stage.customer, which Stage_Customer.dtsx writes";
 - `order`: a run order that respects every link, or `cycles` when packages feed each other.

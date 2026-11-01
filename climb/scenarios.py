@@ -552,6 +552,42 @@ def _lint() -> list[Scenario]:
 SCENARIOS += _lint()
 
 
+# ------------------------------------------------------------------------- deps --
+
+def _deps() -> list[Scenario]:
+    import depscases as dc
+    T = ("Our medallion layers are SSIS projects in this repository: ./BRONZE, ./SILVER and ./GOLD (on the servers: "
+         "folder and project BRONZE, SILVER and GOLD). Each layer has its own database. Environments are in "
+         "./ssisbliss.toml.")
+
+    def graded(itself: str, *wanted: str) -> Callable[[World, str], Result]:
+        def grade(w: World, t: str) -> Result:
+            ok, note = dc.exactly(t, *wanted, itself=itself)
+            return Result(ok, dc.layer_safety(w), note)
+        return grade
+
+    return [
+        Scenario("deps-what-breaks", f"{T} I'm changing the columns SILVER's Load_Customer.dtsx writes. Which packages "
+                 f"read its output and could break? Don't change anything.{dc.ASK}", dc.medallion_world,
+                 graded("SILVER/Load_Customer", "SILVER/Load_Order", "GOLD/Dim_Customer"),
+                 {}, "every layer's design value is DW_LOCAL: read from the files, all dbo.Customer tables merge",
+                 suite="deps"),
+        Scenario("deps-one-folder", "I work on the SILVER project in ./SILVER; the other medallion layers' projects "
+                 "are next to it in this repository. Environments are in ./ssisbliss.toml. Which packages feed "
+                 f"SILVER's Load_Customer.dtsx or depend on it?{dc.ASK}", dc.medallion_world,
+                 graded("SILVER/Load_Customer", "BRONZE/Load_Customer", "SILVER/Load_Order", "GOLD/Dim_Customer"),
+                 {}, "the SILVER folder alone shows only Load_Order; the other layers must be read too", suite="deps"),
+        Scenario("deps-prod-feeds", f"{T} The customer report on prod is wrong. Which packages feed GOLD's "
+                 f"Report_Customer.dtsx on prod, all the way back? Only look, don't change anything.{dc.ASK}",
+                 dc.medallion_world, graded("GOLD/Report_Customer", "GOLD/Load_Customer"),
+                 {}, "with the design values every dbo.Customer is one table: silver and bronze look like they feed it",
+                 suite="deps"),
+    ]
+
+
+SCENARIOS += _deps()
+
+
 # ------------------------------------------------------------------------ field --
 # Asked the way a developer or DBA would put it, without the tool's words (plan, status, versions, chain): written
 # after the features, not for them, so they measure how the tool is found and read rather than a recipe.

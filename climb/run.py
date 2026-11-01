@@ -260,7 +260,7 @@ def run_suite(out: Path, only: list[str] | None = None, repeats: int = 1, model:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--only", nargs="*")
-    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "field"], help="only this suite (default: all)")
+    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "deps", "field"], help="only this suite (default: all)")
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--model", default="sonnet", help="field agent: a Claude model, claude:<model> or codex:<model>")
     p.add_argument("--jobs", type=int, default=4)

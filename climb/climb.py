@@ -267,7 +267,7 @@ def main() -> None:
     p.add_argument("--jobs", type=int, default=6, help="runs at a time per agent")
     p.add_argument("--budget", type=float, default=1.0, help="max USD per scenario run")
     p.add_argument("--baseline", help="existing climb evaluation dir (with matrix.json) to use as the baseline")
-    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "field"], help="only this scenario suite")
+    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "deps", "field"], help="only this scenario suite")
     p.add_argument("--perf-repeat", type=int, default=3, help="runs per speed benchmark (median)")
     p.add_argument("--history", action="append", default=[], metavar="LOG",
                    help="log.md of an earlier climb, so the proposer knows what was tried (repeatable)")

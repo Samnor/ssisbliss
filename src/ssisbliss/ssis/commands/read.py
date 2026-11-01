@@ -8,7 +8,7 @@ from ..dtsx import as_editable
 from ..executions import FAILED, STATUS_IDS, report
 from ..ispac import Ispac
 from ..outline import outline
-from .common import Reply, _catalog, _env, _target, reply
+from .common import Reply, _argv, _catalog, _env, _target, reply
 
 
 def cmd_inspect(a) -> Reply:
@@ -85,20 +85,24 @@ def cmd_deps(a) -> Reply:
                 facts[f.key] = f
         source = f"{env.name or env.server}: " + ", ".join(f"{f}/{p}" for f, p in wanted) + " (deployed)"
     else:
-        folders = ([given.parent] if given.suffix.lower() == ".dtsx" and given.is_file() else []) + \
-                  [Path(d) for d in (a.dir or [])]
+        in_folder = given.suffix.lower() == ".dtsx" and (given.is_file() or given.parent != Path(".")
+                                                         and given.parent.is_dir())
+        folders = ([given.parent] if in_folder else []) + [Path(d) for d in (a.dir or [])]
         folders = list({f.resolve(): f for f in (folders or [Path(".")])}.values())
         places = []
         for folder in folders:
             dtproj = next(iter(sorted(folder.glob("*.dtproj"))), None)
             places.append((folder.resolve().parent.name, dtproj.stem if dtproj else folder.resolve().name))
         labels = _labels(places) if len(folders) > 1 else [""] * len(folders)
-        home = labels[0] if given.suffix.lower() == ".dtsx" and given.is_file() else None
+        home = labels[0] if in_folder else None
         for folder, label in zip(folders, labels):
             files = sorted(folder.glob("*.dtsx"))
             if not files:
-                raise ValueError(f"no .dtsx files in {folder}: give the package's path, --dir with the project's "
-                                 f"packages, or --env for the deployed project")
+                found = _project_folders([folder], parent=folder.resolve())
+                return reply({"error": f"no .dtsx files in {folder}: give the package's path, --dir with the "
+                                       f"project's packages, or --env for the deployed project",
+                              **({"next": [_same(None, None, [x for d in found for x in ("--dir", d)])]}
+                                 if found else {})}, EXIT_REFUSED)
             info = deps.ProjectInfo.from_folder(folder, label)
             for file in files:
                 f = deps.facts(file.name, file.read_bytes(), info)
@@ -110,17 +114,26 @@ def cmd_deps(a) -> Reply:
     if home is not None and len(candidates) > 1:
         candidates = [k for k in candidates if facts[k].project == home] or candidates
     if not candidates:
-        return reply({"error": f"{name} is not in {source}; it has "
-                               f"{', '.join(sorted(facts, key=str.lower)[:40])}"}, EXIT_REFUSED)
+        import difflib
+        close = difflib.get_close_matches(name.lower(), {f.package.lower(): f.package for f in facts.values()}, n=3,
+                                          cutoff=0.75)
+        by_lower = {f.package.lower(): f.package for f in facts.values()}
+        return reply({"error": f"{name} is not in {source}" + (f"; did you mean {', '.join(by_lower[c] for c in close)}?"
+                                                                  if close else "") +
+                               f"; it has {', '.join(sorted(facts, key=str.lower)[:40])}",
+                      "next": [_same(a.package, str(given.with_name(by_lower[c])) if given.parent != Path(".")
+                                     else by_lower[c]) for c in close]}, EXIT_REFUSED)
     if len(candidates) > 1:
         return reply({"error": f"{name} is in several projects ({', '.join(sorted(candidates))}): give its path, "
-                               f"or --project with one of them"}, EXIT_REFUSED)
+                               f"or --project with one of them",
+                      "next": [_same(None, None, ["--project", facts[k].project]) for k in sorted(candidates)]},
+                     EXIT_REFUSED)
     g = deps.graph(candidates[0], facts, depth=a.depth, direction=a.direction)
     if a.format == "mermaid":
         return Reply(None, text=deps.mermaid(g))
     if a.format == "dot":
         return Reply(None, text=deps.dot(g))
-    notes = []
+    notes, nxt = [], []
     unknown = [n["package"] for n in g["nodes"] if n.get("unknown_sql")]
     if unknown:
         notes.append(f"{', '.join(unknown)} also run SQL that is built at run time or did not parse (unknown_sql): "
@@ -129,11 +142,91 @@ def cmd_deps(a) -> Reply:
     if no_db:
         notes.append(f"the database of some connections in {', '.join(no_db)} is not known (unknown_database): their "
                      f"tables are matched by schema.table only, and those links are marked unsure")
-    if len({f.project for f in facts.values()}) == 1 and not (a.also or a.all_projects):
+    one = len({f.project for f in facts.values()}) == 1 and not (a.also or a.all_projects)
+    if one:
         notes.append("one project read: links to other projects (another layer's database) need --dir for each "
                      "project folder, or --also FOLDER/PROJECT / --all-projects with --env")
-    return reply({"source": source, **g, **({"skipped": skipped} if skipped else {}), "mermaid": deps.mermaid(g),
-                  **({"note": "; ".join(notes)} if notes else {})})
+    design = [e for e in g["edges"] if e.get("unsure") and "your files" in e.get("why_unsure", "")]
+    if a.env or a.server:
+        if one:
+            nxt.append(_same(None, None, ["--all-projects"]))
+    else:
+        if one:
+            others = _project_folders(folders)
+            if others:
+                nxt.append(_same(None, None, [x for d in others for x in ("--dir", d)]))
+        if design or one:
+            nxt += _deployed(a, given, folders[0])
+    if design:
+        notes.append(f"{len(design)} link(s) go through a database that is a value in your files, which the catalog "
+                     f"can replace: graph the deployed projects with --env to know which are real")
+    doc = {"summary": _summary(g, one), "source": source, **g, **({"skipped": skipped} if skipped else {}),
+           "mermaid": deps.mermaid(g), **({"note": "; ".join(notes)} if notes else {})}
+    return reply({**doc, **({"next": nxt} if nxt else {})})
+
+
+def _same(old: str | None, new: str | None, extra: list[str] | None = None) -> str:
+    """This deps command with the package replaced and options added: ready to run."""
+    import shlex
+    args = [new if old is not None and x == old else x for x in _argv]
+    return "ssisbliss " + shlex.join([*args, *(extra or [])])
+
+
+def _project_folders(folders: list[Path], most: int = 8, parent: Path | None = None) -> list[str]:
+    """Other SSIS project folders next to the one read (siblings, or one level further down; or below `parent`),
+    relative to here."""
+    import os
+    mine = {f.resolve() for f in folders}
+    parent = parent or folders[0].resolve().parent
+    found = []
+    for pattern in ("*/*.dtsx", "*/*/*.dtsx"):
+        for f in sorted(parent.glob(pattern)):
+            d = f.parent.resolve()
+            hidden = any(x.startswith(".") or x.lower() in ("bin", "obj") for x in d.relative_to(parent).parts)
+            if d not in mine and d not in found and not hidden:
+                found.append(d)
+        if found:
+            break
+    return [os.path.relpath(d) for d in found[:most]]
+
+
+def _deployed(a, given: Path, folder: Path) -> list[str]:
+    """The same graph from the deployed projects, one command per environment in ssisbliss.toml."""
+    import os
+    import shlex
+    import tomllib
+
+    from ..config import find_config
+    config = Path(a.config) if getattr(a, "config", None) else find_config()
+    try:
+        envs = list(tomllib.loads(config.read_text()).get("environments", {})) if config else []
+    except (OSError, tomllib.TOMLDecodeError):
+        envs = []
+    stem = given.name.removesuffix(".dtsx").removesuffix(".DTSX")
+    return [f"ssisbliss deps {shlex.quote(stem)} --env {shlex.quote(e)} --dir {shlex.quote(os.path.relpath(folder))} "
+            f"--all-projects" for e in envs[:3]]
+
+
+def _summary(g: dict, one: bool, most: int = 6) -> str:
+    """The graph in one line: what feeds the package, what it feeds, and how sure the links are."""
+    def listed(nodes: list[dict]) -> str:
+        sure = [n["package"] for n in nodes if not n.get("unsure")]
+        maybe = [n["package"] for n in nodes if n.get("unsure")]
+        out = f"{len(sure)} package(s)" + (": " + ", ".join(sure[:most]) + (f" +{len(sure) - most} more" if len(sure) > most else "")
+                                if sure else "")
+        if maybe:
+            out += (f" (and {len(maybe)} more only through unsure links, which may not be real: "
+                    + ", ".join(maybe[:most]) + (f" +{len(maybe) - most} more" if len(maybe) > most else "") + ")")
+        return out
+    ups = [n for n in g["nodes"] if n["role"] in ("upstream", "both")]
+    downs = [n for n in g["nodes"] if n["role"] in ("downstream", "both")]
+    unsure = [e for e in g["edges"] if e.get("unsure")]
+    text = f"{g['package']} is fed by {listed(ups)}; it feeds {listed(downs)}"
+    if unsure:
+        text += f"; {len(unsure)} of {len(g['edges'])} links are unsure (see why_unsure; next resolves them)"
+    if one:
+        text += "; only one project was read, so links to other projects are not shown (see next)"
+    return text
 
 
 def cmd_executions(a) -> Reply:

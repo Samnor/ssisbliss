@@ -109,9 +109,11 @@ def test_packages_that_feed_each_other_are_cycles_not_an_order(tmp_path):
 def test_a_package_that_is_not_there_is_refused_with_the_list(tmp_path):
     d = chain(tmp_path)
     code, doc = cli(d, "deps", "Nope.dtsx")
-    assert code == 2 and doc["error_kind"] == "refused" and "Clean.dtsx" in doc["error"]
-    code, doc = cli(tmp_path, "deps", "Clean.dtsx")       # no packages here
-    assert code == 2 and "no .dtsx files" in doc["error"]
+    assert code == 2 and doc["error_kind"] == "refused" and "Clean.dtsx" in doc["error"] and "next" not in doc
+    code, doc = cli(tmp_path, "deps", "proj/Claen.dtsx")      # misspelled: the command with the right name
+    assert code == 2 and "did you mean Clean.dtsx" in doc["error"] and doc["next"] == ["ssisbliss deps proj/Clean.dtsx"]
+    code, doc = cli(tmp_path, "deps", "Clean.dtsx")       # no packages here: the folders that have them
+    assert code == 2 and "no .dtsx files" in doc["error"] and doc["next"] == ["ssisbliss deps Clean.dtsx --dir proj"]
 
 
 def test_deps_reads_the_deployed_project(tmp_path):
@@ -190,7 +192,13 @@ def test_layers_in_separate_databases_link_through_their_real_tables_only(tmp_pa
                      ("SILVER/Load_Customer.dtsx", "SILVER/Load_Order.dtsx"): ["silver.dbo.customer"],
                      ("SILVER/Load_Customer.dtsx", "GOLD/Dim_Customer.dtsx"): ["silver.dbo.customer"],
                      ("GOLD/Dim_Customer.dtsx", "GOLD/Load_Customer.dtsx"): ["gold.dbo.dimcustomer"]}
-    assert not any(e.get("unsure") for e in doc["edges"]) and "unknown_database" not in str(doc["nodes"])
+    # a link across projects goes through a parameter's value in your files, which the catalog can replace;
+    # within a project, the same parameter is the same database wherever it is deployed
+    unsure = {(e["from"], e["to"]) for e in doc["edges"] if e.get("unsure")}
+    assert unsure == {("BRONZE/Load_Customer.dtsx", "SILVER/Load_Customer.dtsx"),
+                      ("SILVER/Load_Customer.dtsx", "GOLD/Dim_Customer.dtsx")}
+    assert "($Project::TargetDb in BRONZE = BRONZE)" in next(e["why_unsure"] for e in doc["edges"] if e.get("unsure"))
+    assert "unknown_database" not in str(doc["nodes"]) and "--env" in doc["note"]
     assert {n["package"]: n["project"] for n in doc["nodes"]}["BRONZE/Load_Customer.dtsx"] == "BRONZE"
     assert doc["order"].index("BRONZE/Load_Customer.dtsx") < doc["order"].index("GOLD/Dim_Customer.dtsx")
 
@@ -199,7 +207,9 @@ def test_one_layer_alone_says_other_projects_are_not_read(tmp_path):
     m = medallion(tmp_path)
     _, doc = cli(tmp_path, "deps", str(m["SILVER"] / "Load_Customer.dtsx"))
     assert [(e["from"], e["to"]) for e in doc["edges"]] == [("Load_Customer.dtsx", "Load_Order.dtsx")]
-    assert "--dir for each project folder" in doc["note"]
+    assert "--dir for each project folder" in doc["note"] and "only one project was read" in doc["summary"]
+    # the next command reads the projects next to it
+    assert doc["next"][0] == f"ssisbliss deps {m['SILVER'] / 'Load_Customer.dtsx'} --dir BRONZE --dir GOLD"
 
 
 def test_a_name_in_several_layers_needs_its_path_or_project(tmp_path):
@@ -207,6 +217,7 @@ def test_a_name_in_several_layers_needs_its_path_or_project(tmp_path):
     dirs = [a for layer in ("BRONZE", "SILVER", "GOLD") for a in ("--dir", str(m[layer]))]
     code, doc = cli(tmp_path, "deps", "Load_Customer", *dirs)
     assert code == 2 and "several projects" in doc["error"] and "GOLD/Load_Customer.dtsx" in doc["error"]
+    assert doc["next"] == [f"ssisbliss deps Load_Customer {' '.join(dirs)} --project {p}" for p in ("BRONZE", "GOLD", "SILVER")]
     code, doc = cli(tmp_path, "deps", "Load_Customer", *dirs, "--project", "GOLD")
     assert code == 0 and doc["package"] == "GOLD/Load_Customer.dtsx"
 
@@ -263,3 +274,44 @@ def test_deps_reads_several_deployed_projects(tmp_path):
     code, doc = cli(w.work, "deps", "Load_Customer", "--env", "dev", "--folder", "SILVER", "--project", "SILVER",
                     "--all-projects", root=w)
     assert code == 0 and set(doc["projects"]) >= {"BRONZE", "SILVER", "GOLD", "STAGE"}
+
+
+# ------------------------------------------------- design values: a database your files cannot know --
+
+def test_layers_that_share_a_design_value_are_unsure_until_read_deployed(tmp_path):
+    """Every layer's parameters say DW_LOCAL in the files (climb/depscases.py): read from the files, every
+    dbo.Customer is one table. Those links are unsure, the summary says which packages hang on them only, and
+    next reads the deployed projects, where the environments give each layer its database."""
+    import depscases as dc
+    w = dc.medallion_world(tmp_path / "w")
+    code, doc = cli(w.work, "deps", "SILVER/Load_Customer.dtsx", "--dir", "BRONZE", "--dir", "GOLD", root=w)
+    assert code == 0
+    sure = {(e["from"], e["to"]) for e in doc["edges"] if not e.get("unsure")}
+    # within a project the same parameter is the same database; silver's copy reads over SourceDb and writes
+    # over TargetDb, so it is not sure to read what it writes
+    assert sure == {("SILVER/Load_Customer.dtsx", "SILVER/Load_Order.dtsx"),
+                    ("BRONZE/Load_Customer.dtsx", "BRONZE/Check_Customer.dtsx"),
+                    ("GOLD/Load_Customer.dtsx", "GOLD/Report_Customer.dtsx")}
+    maybe = {n["package"] for n in doc["nodes"] if n.get("unsure")}
+    assert maybe == {"BRONZE/Load_Customer.dtsx", "GOLD/Load_Customer.dtsx", "BRONZE/Check_Customer.dtsx",
+                     "GOLD/Dim_Customer.dtsx", "GOLD/Report_Customer.dtsx"}
+    assert doc["summary"].startswith("SILVER/Load_Customer.dtsx is fed by 0 package(s) (and 2 more only through "
+                                     "unsure links") and "it feeds 1 package(s): SILVER/Load_Order.dtsx (and 3 more" in doc["summary"]
+    assert doc["next"] == [f"ssisbliss deps Load_Customer --env {e} --dir SILVER --all-projects" for e in ("dev", "stage", "prod")]
+    mermaid = doc["mermaid"]
+    assert mermaid.count("-.->") == len(doc["edges"]) - len(sure)
+
+    code, doc = cli(w.work, *doc["next"][2].split()[1:], root=w)      # as next says: the deployed projects
+    assert code == 0 and not any(e.get("unsure") for e in doc["edges"]), doc
+    assert {(e["from"], e["to"]) for e in doc["edges"]} == {
+        ("BRONZE/Load_Customer.dtsx", "SILVER/Load_Customer.dtsx"), ("SILVER/Load_Customer.dtsx", "SILVER/Load_Order.dtsx"),
+        ("SILVER/Load_Customer.dtsx", "GOLD/Dim_Customer.dtsx")}
+    assert doc["summary"] == ("SILVER/Load_Customer.dtsx is fed by 1 package(s): BRONZE/Load_Customer.dtsx; it feeds "
+                              "2 package(s): GOLD/Dim_Customer.dtsx, SILVER/Load_Order.dtsx") and "next" not in doc
+
+
+def test_a_deployed_project_read_alone_offers_all_projects(tmp_path):
+    import depscases as dc
+    w = dc.medallion_world(tmp_path / "w")
+    code, doc = cli(w.work, "deps", "Report_Customer", "--env", "prod", "--folder", "GOLD", "--project", "GOLD", root=w)
+    assert code == 0 and doc["next"] == ["ssisbliss deps Report_Customer --env prod --folder GOLD --project GOLD --all-projects"]

@@ -5,7 +5,9 @@ Table names are normalised to database.schema.table in lower case (dbo when no s
 database is the one the SQL names, else the one the task's connection manager points at: its connection
 string, an expression on it (string literals and $Project::, $Package:: and User:: values), or the value
 the catalog has for it. A database that cannot be worked out is "?": such a table may be any database's,
-and a link through it says so. Temp tables, table variables and SQL built at run time (expressions,
+and a link through it says so. Read from your files, a database that comes from a project parameter or a
+project connection manager is the design value, which the catalog can replace: a link through it is only
+sure between packages that take it from the same parameter of the same project. Temp tables, table variables and SQL built at run time (expressions,
 variables, files) are left out, and listed in `unknown_sql` so a reader knows what could not be followed.
 """
 from __future__ import annotations
@@ -39,6 +41,8 @@ class Facts:
     unknown_sql: list[str] = field(default_factory=list)   # tasks whose SQL is built at run time or did not parse
     project: str = ""                                  # set when a graph spans several projects
     unknown_db: list[str] = field(default_factory=list)    # connections whose database could not be worked out
+    assumed: dict[str, str] = field(default_factory=dict)  # read table -> the design value its database comes from
+    assumed_writes: dict[str, str] = field(default_factory=dict)   # the same for the tables it writes
 
     @property
     def key(self) -> str:
@@ -92,6 +96,7 @@ class ProjectInfo:
     name: str = ""
     values: dict[str, str | None] = field(default_factory=dict)    # parameter name, lower case
     managers: list[bytes] = field(default_factory=list)            # the project's .conmgr files
+    design: bool = False      # your files: the catalog may set other parameter and connection manager values
 
     @staticmethod
     def params(data: bytes | None) -> dict[str, str | None]:
@@ -111,7 +116,7 @@ class ProjectInfo:
     def from_folder(cls, folder: Path, name: str = "") -> "ProjectInfo":
         params = folder / "Project.params"
         return cls(name, cls.params(params.read_bytes() if params.is_file() else None),
-                   [f.read_bytes() for f in sorted(folder.glob("*.conmgr"))])
+                   [f.read_bytes() for f in sorted(folder.glob("*.conmgr"))], design=True)
 
     @classmethod
     def from_ispac(cls, ispac, name: str = "", bindings: list[dict] | None = None,
@@ -177,9 +182,13 @@ def _values(root: ET.Element, project: ProjectInfo | None) -> dict[str, str | No
     return vals
 
 
-def connection_databases(root: ET.Element, project: ProjectInfo | None) -> dict[str, str | None]:
-    """Each connection manager (by refId, DTSID and name) -> the database it points at, or None."""
+def connection_databases(root: ET.Element, project: ProjectInfo | None
+                         ) -> tuple[dict[str, str | None], dict[str, str]]:
+    """Each connection manager (by refId, DTSID and name) -> the database it points at, or None; and, read
+    from your files, the ones whose database is a design value -> where it comes from."""
     vals = _values(root, project)
+    design = project is not None and project.design
+    where = f" in {project.name}" if project and project.name else ""
     managers = [(cm, "Package") for cm in root.iter(f"{_D}ConnectionManager")
                 if cm.find(f"{_D}ObjectData") is not None]
     for data in (project.managers if project else []):
@@ -188,12 +197,14 @@ def connection_databases(root: ET.Element, project: ProjectInfo | None) -> dict[
         except ET.ParseError:
             continue
     out: dict[str, str | None] = {}
+    assumed: dict[str, str] = {}
     for cm, scope in managers:
         name = cm.get(f"{_D}ObjectName") or ""
         inner = cm.find(f"{_D}ObjectData/{_D}ConnectionManager")
         exprs = {e.get(f"{_D}Name"): e.text or "" for e in cm.findall(f"{_D}PropertyExpression")}
         db: str | None = None
         decided = False
+        source = ""
         if scope == "Project":     # the catalog can set a project connection manager's properties
             for prop in ("InitialCatalog", "ConnectionString"):
                 key = f"$project::cm.{name.lower()}.{prop.lower()}"
@@ -206,13 +217,20 @@ def connection_databases(root: ET.Element, project: ProjectInfo | None) -> dict[
                 if prop in exprs:
                     v = evaluate(exprs[prop], vals)
                     db, decided = (v.lower() if prop == "InitialCatalog" and v else database_of(v)), True
+                    params = sorted(set(_PROJECT_PARAM.findall(exprs[prop])), key=str.lower)
+                    if params:
+                        source = " and ".join(f"$Project::{x}" for x in params) + where
                     break
         if not decided:
             db = database_of(inner.get(f"{_D}ConnectionString") if inner is not None else None)
+        if scope == "Project" and not source:
+            source = f"project connection manager {name}{where}"
         for key in (cm.get(f"{_D}refId"), cm.get(f"{_D}DTSID"), f"{scope}.ConnectionManagers[{name}]", name):
             if key:
                 out.setdefault(key, db)
-    return out
+                if design and source and db:
+                    assumed.setdefault(key, f"{source} = {db.upper()}")
+    return out, assumed
 
 
 @lru_cache(maxsize=CACHED)
@@ -262,10 +280,12 @@ def _pattern_tables(sql: str) -> tuple[set[str], set[str]]:
     return {r for r in reads if r} - writes, {w for w in writes if w}
 
 
-def _dataflow_tables(task_xml: ET.Element, databases: dict[str, str | None]
-                     ) -> tuple[set[str], set[str], list[str], list[str]]:
-    """(reads, writes, unknown_sql, unknown_db) of a data flow's sources and destinations."""
-    reads, writes, unknown, unknown_db = set(), set(), [], []
+def _dataflow_tables(task_xml: ET.Element, databases: dict[str, str | None], assumed: dict[str, str] | None = None
+                     ) -> tuple[set[str], set[str], list[str], list[str], dict[str, str]]:
+    """(reads, writes, unknown_sql, unknown_db, assumed) of a data flow's sources and destinations; assumed is
+    ("r" or "w", table) -> where its design-value database comes from."""
+    reads, writes, unknown, unknown_db, guessed = set(), set(), [], [], {}
+    assumed = assumed or {}
     for comp in task_xml.iter("component"):
         cls = (comp.get("componentClassID") or "").lower()
         props = {p.get("name"): (p.text or "") for p in comp.iter("property")}
@@ -275,6 +295,8 @@ def _dataflow_tables(task_xml: ET.Element, databases: dict[str, str | None]
         key = key.removesuffix(":external")
         cm = re.sub(r".*\[(.*)\]$", r"\1", key)
         db = databases.get(key, databases.get(cm))
+        source = assumed.get(key, assumed.get(cm))
+        before = {("r", t) for t in reads} | {("w", t) for t in writes}
         if ref is not None and db is None:
             unknown_db.append(f"{comp.get('name')} (connection {cm})")
         # OLE DB AccessMode: source 0 table, 1 table from variable, 2 SQL, 3 SQL from variable;
@@ -298,7 +320,10 @@ def _dataflow_tables(task_xml: ET.Element, databases: dict[str, str | None]
             r, w, ok = sql_tables(command)
             reads |= {qualified(x, db) for x in r}
             writes |= {qualified(x, db) for x in w}
-    return reads, writes, unknown, unknown_db
+        if source:
+            now = {("r", t) for t in reads} | {("w", t) for t in writes}
+            guessed.update({t: source for t in now - before})
+    return reads, writes, unknown, unknown_db, guessed
 
 
 def facts(name: str, data: bytes, project: ProjectInfo | None = None) -> Facts:
@@ -307,7 +332,7 @@ def facts(name: str, data: bytes, project: ProjectInfo | None = None) -> Facts:
     f.calls = {m if m.lower().endswith(".dtsx") else f"{m}.dtsx" for m in _PACKAGE_NAME.findall(text)}
     f.parameters = set(_PROJECT_PARAM.findall(text))
     root = ET.fromstring(data)
-    databases = connection_databases(root, project)
+    databases, assumed = connection_databases(root, project)
     o = outline(data)
     for t in flatten(o["tasks"]):
         if t["kind"] != "sql":
@@ -323,15 +348,20 @@ def facts(name: str, data: bytes, project: ProjectInfo | None = None) -> Facts:
             r, w, ok = sql_tables(t["sql"])
             f.reads |= {qualified(x, db) for x in r}
             f.writes |= {qualified(x, db) for x in w}
+            if source := assumed.get(t.get("connection") or ""):
+                f.assumed.update({qualified(x, db): source for x in r if x.count(".") < 2})
+                f.assumed_writes.update({qualified(x, db): source for x in w if x.count(".") < 2})
             if not ok:
                 f.unknown_sql.append(f"{t['name']} (SQL did not parse; tables found by pattern)")
     for ex in root.iter():
         if ex.tag.endswith("}ObjectData") or ex.tag == "ObjectData":
             pipeline = ex.find("pipeline")
             if pipeline is not None:
-                r, w, unknown, unknown_db = _dataflow_tables(pipeline, databases)
+                r, w, unknown, unknown_db, guessed = _dataflow_tables(pipeline, databases, assumed)
                 f.reads |= r
                 f.writes |= w
+                for (kind, table), source in guessed.items():
+                    (f.assumed if kind == "r" else f.assumed_writes).setdefault(table, source)
                 f.unknown_sql += unknown
                 f.unknown_db += unknown_db
     return f
@@ -374,6 +404,7 @@ class Link:
     kind: str                    # "runs" (Execute Package task) or "tables"
     tables: tuple[str, ...] = ()
     unsure: tuple[str, ...] = ()  # tables matched by schema.table only: a database was not known
+    assumed: tuple[str, ...] = ()  # where a design-value database came from, when the two sides differ in it
 
     def via(self) -> str:
         if self.kind == "runs":
@@ -399,7 +430,12 @@ def links(all_facts: dict[str, Facts]) -> list[Link]:
         for w in sorted(candidates):
             tables = shared(f.reads, all_facts[w].writes)
             if tables:
-                out.append(Link(w, key, "tables", tuple(n for n, _ in tables), tuple(n for n, sure in tables if not sure)))
+                # a design value matches only itself: the same parameter (or connection manager) of one project
+                design = {n: (f.assumed.get(n), all_facts[w].assumed_writes.get(n)) for n, sure in tables if sure}
+                design = {n: s for n, s in design.items() if any(s) and s[0] != s[1]}
+                out.append(Link(w, key, "tables", tuple(n for n, _ in tables),
+                                tuple(n for n, sure in tables if not sure or n in design),
+                                tuple(sorted({x for s in design.values() for x in s if x}))))
     return sorted(out, key=lambda x: (x.source.lower(), x.target.lower(), x.kind))
 
 
@@ -412,9 +448,14 @@ def graph(target: str, all_facts: dict[str, Facts], depth: int | None = None, di
     every = links(all_facts)
     down: dict[str, list[str]] = {}
     up: dict[str, list[str]] = {}
+    sure_down: dict[str, list[str]] = {}
+    sure_up: dict[str, list[str]] = {}
     for x in every:
         down.setdefault(x.source, []).append(x.target)
         up.setdefault(x.target, []).append(x.source)
+        if len(x.unsure) < len(x.tables) or x.kind == "runs":
+            sure_down.setdefault(x.source, []).append(x.target)
+            sure_up.setdefault(x.target, []).append(x.source)
 
     def walk(adjacent: dict[str, list[str]]) -> dict[str, int]:
         seen, frontier, step = {me: 0}, [me], 0
@@ -429,6 +470,8 @@ def graph(target: str, all_facts: dict[str, Facts], depth: int | None = None, di
     ups = walk(up) if direction in ("both", "up") else {me: 0}
     downs = walk(down) if direction in ("both", "down") else {me: 0}
     keep = set(ups) | set(downs)
+    sure = (set(walk(sure_up)) if direction in ("both", "up") else set()) | \
+        (set(walk(sure_down)) if direction in ("both", "down") else set())
     edges = [x for x in every if x.source in keep and x.target in keep]
 
     nodes = []
@@ -438,6 +481,8 @@ def graph(target: str, all_facts: dict[str, Facts], depth: int | None = None, di
         f = all_facts.get(n)
         role = "this" if n == me else "both" if n in ups and n in downs else "upstream" if n in ups else "downstream"
         node = {"package": n, "role": role, "steps": min(d.get(n, 10**9) for d in (ups, downs) if n in d)}
+        if n not in sure and n != me:
+            node["unsure"] = "reached only through unsure links: it may not be linked at all"
         if f is None:
             node["missing"] = "called by an Execute Package task but not in its project"
         else:
@@ -472,11 +517,20 @@ def graph(target: str, all_facts: dict[str, Facts], depth: int | None = None, di
             **({"projects": projects} if projects else {}),
             "nodes": nodes,
             "edges": [{"from": x.source, "to": x.target, "kind": x.kind, **({"tables": list(x.tables)} if x.tables else {}),
-                       "via": x.via(),
-                       **({"unsure": list(x.unsure), "why_unsure": "the same schema.table, but a database is not "
-                           "known (unknown_database on a package): it may be another database's table"}
-                          if x.unsure else {})} for x in edges],
+                       "via": x.via(), **({"unsure": list(x.unsure), "why_unsure": why_unsure(x)} if x.unsure else {})}
+                      for x in edges],
             **({"order": order} if not cycles else {"cycles": cycles})}
+
+
+def why_unsure(x: Link) -> str:
+    why = []
+    if x.assumed:
+        why.append(f"the database is a value in your files ({'; '.join(x.assumed)}), and the catalog can set "
+                   f"another one when the project is deployed: graph the deployed projects (--env) to be sure")
+    if any(t.count(".") < 2 for t in x.unsure):    # shown without its unknown database
+        why.append("the same schema.table, but a database is not known (unknown_database on a package): it may "
+                   "be another database's table")
+    return "; ".join(why)
 
 
 def _label(x: dict, most: int = 2) -> str:

@@ -36,6 +36,7 @@ grader scores the end state and the agent's final message. Suites:
 | `team` | PR branches on a shared dev: worktrees, reset to main, new parameters, who else works on a package, strays |
 | `hard` | requests that name less and traps that need several commands |
 | `lint` | checking a package before a PR, laying out its SQL, the SQL changes for a PR description |
+| `deps` | how packages connect across medallion layers whose files all name one development database |
 
 ## Scoring
 

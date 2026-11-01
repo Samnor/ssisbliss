@@ -14,6 +14,14 @@
   parameter bound to an SSIS environment). Every medallion layer's `dbo.Customer` is now its own table, in
   `deps` and in `activity`; a link through a database that cannot be worked out is marked unsure.
   `deps` reads several projects (`--dir` per folder, or `--also` / `--all-projects` with `--env`).
+- `deps` is harder to misread, for people and for small models. Read from your files, a link through a
+  database that comes from a parameter's design value (or a project connection manager) is unsure unless both
+  packages take it from the same parameter of the same project: the catalog can set other values. The output
+  starts with a one-line `summary` that keeps packages reached only through unsure links apart, and `next`
+  gives the commands that settle it: the project folders next to the one read, and the deployed projects
+  for each environment. A misspelled package gets the command with the right name, a name in several
+  projects one command per project, and a folder without packages the folders that have them. The climb has
+  a `deps` suite (three medallion layers whose files all say one development database).
 - A mistyped command suggests the commands that start with it first (`deploy`: `deploy-packages`,
   `deploy-project`).
 - A rollback plan says when it undoes only your own deploys; a build refused for its protection level
