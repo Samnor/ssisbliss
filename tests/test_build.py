@@ -233,7 +233,7 @@ def test_rebuild_then_deploy_package_over_a_visual_studio_deployed_project(tmp_p
     assert out["status"] == "verified", out
 
 
-def test_no_dtproj_error_names_the_project_on_the_server_without_choosing_it(tmp_path, monkeypatch, capsys):
+def test_no_dtproj_uses_the_one_project_holding_the_packages_and_apply_must_name_it(tmp_path, monkeypatch, capsys):
     proj = _project_copy(tmp_path)
     cat = _server_with(proj)
     for f in proj.glob("*.dtproj"):
@@ -242,8 +242,21 @@ def test_no_dtproj_error_names_the_project_on_the_server_without_choosing_it(tmp
     monkeypatch.chdir(tmp_path)
     status = ["status", "--env", "dev", "--dir", str(proj)]
     code, out = _cli(monkeypatch, capsys, cat, *status)
+    assert code == 0 and "only project on the server" in out["target_from"]["project"]
+    assert out["target_from"]["folder"].startswith("CORPUS ")
+
+    # A plan shows the target and its `next` names it; the same command with --apply is refused without one.
+    _edit(proj / "Load_B.dtsx", "my change")
+    deploy = ["deploy-packages", "--env", "dev", str(proj / "Load_B.dtsx"), "--overwrite", "Load_B.dtsx",
+              "--backup-dir", str(tmp_path / "bk")]
+    code, plan = _cli(monkeypatch, capsys, cat, *deploy)
+    assert code == 0 and (plan["target"]["folder"], plan["target"]["project"]) == ("CORPUS", "Corpus"), plan
+    assert "--folder CORPUS --project Corpus --apply --plan-id " + plan["plan_id"] in plan["next"][0]
+    lsn = next(iter(cat.projects.values())).lsn
+    code, out = _cli(monkeypatch, capsys, cat, *deploy, "--apply", "--plan-id", plan["plan_id"])
     assert code == 2 and out["error"].startswith("give --project and --folder: no Visual Studio project")
     assert out["error"].endswith("add --folder CORPUS --project Corpus") and "target_from" not in out
+    assert next(iter(cat.projects.values())).lsn == lsn
 
     # A folder without packages of this project is not offered, and the error still refuses.
     empty = tmp_path / "empty"

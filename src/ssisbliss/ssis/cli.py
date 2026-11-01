@@ -25,8 +25,9 @@ from .executions import STATUS_IDS
 
 RECIPES = """\
 Visual Studio equivalents (T = --env ENV --folder FOLDER --project PROJECT; when the developer names no
-environment, use --env dev; a folder called STAGE is not the stage environment; folder and project may be left
-out: the project is the .dtproj's name, the folder your last one for it, both shown in target_from):
+environment, use --env dev; "live" or "production" means --env prod; a folder called STAGE is not the stage
+environment; folder and project may be left out: the project is the .dtproj's name, the folder your last one
+for it, else the one project on the server holding the packages (not with --apply), shown in target_from):
   Deploy Package (Load_B)      deploy-project T --dtproj X.dtproj --only Load_B
   Rebuild + Deploy Package     the same: --dtproj builds the project first
   Deploy Package, new package  add --allow-new          (or: deploy-packages T --allow-new X/Load_C.dtsx)

@@ -50,6 +50,15 @@ def test_guide_has_the_skill_by_topic(capsys):
     assert doc["guide"].startswith("## Rules") and "## Deploying" not in doc["guide"]
 
 
+def test_every_way_in_says_live_is_prod_and_a_stage_folder_is_not_the_stage_environment(capsys):
+    from ssisbliss.ssis.mcp import instructions
+    _, doc = run(capsys, "guide", "rules")
+    for text in (doc["guide"], instructions()):
+        assert '"live"' in text and "`--env prod`" in text and "it is not the stage environment" in text
+    assert '"live" or "production" means --env prod' in cli.RECIPES
+    assert "a folder called STAGE is not the stage" in cli.RECIPES
+
+
 def test_next_commands_from_nested_hints_get_the_same_server(tmp_path, capsys):
     from test_agent import HISTORY, SSIS_STEP, job, step
     jobs = [job("1 A", "2026-10-29T07:00:00"), job("2 B", "2026-10-29T07:00:05", status=0)]
