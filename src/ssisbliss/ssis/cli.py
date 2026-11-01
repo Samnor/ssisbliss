@@ -113,11 +113,15 @@ def parser() -> argparse.ArgumentParser:
     what = ("how packages connect, from one: the packages it depends on and that depend on it (Execute Package "
             "calls, tables one writes and another reads), followed link by link, as JSON, Mermaid or Graphviz")
     s = sub.add_parser("deps", help=what, description=what + ". Read-only. Reads your project folder, or the "
-                       "deployed project with --env/--server.")
+                       "deployed project with --env/--server. Tables are matched with their database (from the SQL or "
+                       "the connection manager), so layers in separate databases stay apart.")
     s.add_argument("package", help="the package: a name, or the path to its .dtsx file")
-    s.add_argument("--dir", default=".", help="folder with the project's .dtsx files (default: the package's "
-                                              "folder, else here)")
+    s.add_argument("--dir", action="append", default=[], help="a project folder with .dtsx files; repeat it for "
+                   "projects in other layers (default: the package's folder, else here)")
     target(s, required=False)
+    s.add_argument("--also", action="append", default=[], metavar="FOLDER/PROJECT",
+                   help="with --env: also read this deployed project (repeatable), e.g. another layer's")
+    s.add_argument("--all-projects", action="store_true", help="with --env: read every project in the catalog")
     s.add_argument("--depth", type=int, help="follow links this many steps out (default: all the way)")
     s.add_argument("--direction", choices=["both", "up", "down"], default="both",
                    help="up: what it depends on; down: what depends on it (default both)")

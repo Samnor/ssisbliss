@@ -17,7 +17,7 @@ default, explicit plans, JSON output, and checks that refuse the dangerous cases
 | [`ssisbliss build`](docs/build.md) | Build a Visual Studio SSIS project (.dtproj) into an .ispac without Visual Studio, matching Visual Studio's build on the server; deploy straight from a .dtproj |
 | [`ssisbliss executions` / `outline`](docs/troubleshooting.md) | Why a package failed: the failing task, its error, its SQL or PowerShell/Python command, and the parameter values it ran with; what a package does, task by task |
 | [`ssisbliss activity` / `strays`](docs/ssis-deploy.md#who-else-is-working-on-it-activity) | Who else is working on a package, or on a package that depends on it (their branches, whose copy the server has, who ran it lately); deployed packages nobody has any more, and removing them safely |
-| [`ssisbliss deps`](docs/deps.md) | How packages connect, from one: the packages it depends on and that depend on it (Execute Package calls, tables one writes and another reads), as JSON, Mermaid or Graphviz |
+| [`ssisbliss deps`](docs/deps.md) | How packages connect, from one: the packages it depends on and that depend on it (Execute Package calls, tables one writes and another reads, with their database, across projects such as medallion layers), as JSON, Mermaid or Graphviz |
 | [`ssisbliss lint` / `format` / `sql-diff`](docs/lint.md) | Lint packages and their SQL; lay the SQL out readably (only whitespace and keyword case change); the SQL changes as a readable diff for a pull request, where git shows each statement as one long line |
 | [`ssisbliss jobs` / `chain` / `history`](docs/troubleshooting.md) | SQL Agent jobs and job chains: where the nightly chain is or where it broke, run history linked to SSIS executions |
 

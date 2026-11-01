@@ -46,6 +46,7 @@ class Catalog(Protocol):
     def project_parameters(self, project_id: int) -> list[str]: ...
     def parameter_bindings(self, project_id: int) -> list[dict]: ...
     def environment_references(self, project_id: int) -> list[dict]: ...
+    def environment_values(self, project_id: int) -> dict[str, str | None]: ...
     def running_executions(self, folder: str, project: str) -> int: ...
     def versions(self, project_id: int) -> list[dict]: ...
     def get_project(self, folder: str, project: str) -> bytes: ...
@@ -177,6 +178,27 @@ class SqlCatalog:
         return self._rows("""SELECT reference_id, reference_type, environment_folder_name, environment_name
                              FROM catalog.environment_references WHERE project_id = ?
                              ORDER BY reference_id""", project_id)
+
+    def environment_values(self, project_id: int) -> dict[str, str | None]:
+        """Variable name (lower case) -> value in the environments the project references; None when they
+        disagree or it is sensitive (its value is never read). Empty when environments cannot be read."""
+        try:
+            rows = self._rows("""SELECT r.reference_id, v.name, v.sensitive,
+                                        CASE WHEN v.sensitive = 0 THEN CONVERT(nvarchar(4000), v.value) END AS value
+                                 FROM catalog.environment_references r
+                                 JOIN catalog.projects p ON p.project_id = r.project_id
+                                 JOIN catalog.folders f ON f.name = COALESCE(r.environment_folder_name,
+                                     (SELECT name FROM catalog.folders WHERE folder_id = p.folder_id))
+                                 JOIN catalog.environments e ON e.folder_id = f.folder_id AND e.name = r.environment_name
+                                 JOIN catalog.environment_variables v ON v.environment_id = e.environment_id
+                                 WHERE r.project_id = ?""", project_id)
+        except Exception:   # noqa: BLE001 - no permission to read environments
+            return {}
+        out: dict[str, str | None] = {}
+        for r in rows:
+            key, value = r["name"].lower(), None if r["sensitive"] else r["value"]
+            out[key] = value if key not in out or out[key] == value else None
+        return out
 
     def running_executions(self, folder: str, project: str) -> int:
         return self._scalar("""SELECT COUNT(*) FROM catalog.executions

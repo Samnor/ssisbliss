@@ -146,6 +146,20 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
                 built + raw)
     check("deps-server", deps_server)
 
+    def deps_medallion():
+        built = ps("medallion-corpus.ps1")
+        if "MEDALLION BUILT 3 projects" not in built:
+            return False, "could not build the medallion projects with the SSIS object model", built
+        raw = py("deps-medallion.py")
+        d = first_json(raw)
+        g, a = d.get("graph") or {}, d.get("all_projects") or {}
+        return (bool(d.get("ok")), f"deps across three layers in three databases, databases from parameters bound to "
+                f"environments: {len(g.get('edges') or [])} links (missing {g.get('missing')}, extra {g.get('extra')}, "
+                f"unsure {len(g.get('unsure') or [])}), {g.get('seconds')}s; --all-projects over {a.get('projects')} "
+                f"projects gives the same links in {a.get('seconds')}s; unbound (all DESIGN): "
+                f"{len(d.get('before_binding') or [])} links", built + raw)
+    check("deps-medallion", deps_medallion)
+
     def microsoft_deploys():
         raw = py("compare_deploy.py")
         r = {x["method"]: x for x in first_json(raw)["results"]}

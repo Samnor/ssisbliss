@@ -42,41 +42,98 @@ def cmd_outline(a) -> Reply:
     return reply(outline(as_editable(ispac.package(name))))
 
 
+def _labels(places: list[tuple[str, str]]) -> list[str]:
+    """Names for several projects, given (where, name): each one's own name, or where/name when two share it."""
+    names = [n for _, n in places]
+    return [n if names.count(n) == 1 else f"{w}/{n}" for w, n in places]
+
+
 def cmd_deps(a) -> Reply:
-    """How packages connect, from one: what feeds it and what it feeds, link by link."""
+    """How packages connect, from one: what feeds it and what it feeds, link by link, across projects."""
     from .. import deps
-    name = Path(a.package).name
-    name = name if name.lower().endswith(".dtsx") else f"{name}.dtsx"
+    given = Path(a.package)
+    name = given.name if given.name.lower().endswith(".dtsx") else f"{given.name}.dtsx"
+    facts: dict[str, deps.Facts] = {}
+    skipped: list[str] = []
     if a.env or a.server:
         env = _env(a)
         cat = _catalog(env, a)
-        _target(a, env, cat, Path(a.dir))
-        if cat.project(a.folder, a.project) is None:
-            return reply({"error": f"project {a.folder}/{a.project} not found"}, EXIT_REFUSED)
-        ispac = Ispac(cat.get_project(a.folder, a.project))
-        packages = {n: ispac.package(n) for n in ispac.package_names}
-        source = f"{env.name or env.server}/{a.folder}/{a.project} (deployed)"
+        _target(a, env, cat, Path((a.dir or ["."])[0]))
+        wanted = [(a.folder, a.project)]
+        for x in a.also:
+            folder, _, project = x.partition("/")
+            if not project:
+                raise ValueError(f"--also takes FOLDER/PROJECT, not {x!r}")
+            wanted.append((folder, project))
+        if a.all_projects:
+            wanted += [(r["folder"], r["project"]) for r in cat.list_projects(None) if r.get("project")]
+        wanted = list(dict.fromkeys(wanted))
+        labels = _labels(wanted) if len(wanted) > 1 else [""] * len(wanted)
+        home = labels[0]
+        for (folder, project), label in zip(wanted, labels):
+            p = cat.project(folder, project)
+            if p is None:
+                if (folder, project) == wanted[0]:
+                    return reply({"error": f"project {folder}/{project} not found"}, EXIT_REFUSED)
+                skipped.append(f"{folder}/{project} (not found)")
+                continue
+            ispac = Ispac(cat.get_project(folder, project))
+            info = deps.ProjectInfo.from_ispac(ispac, label, cat.parameter_bindings(p.project_id),
+                                               cat.environment_values(p.project_id))
+            for n in ispac.package_names:
+                f = deps.facts(n, ispac.package(n), info)
+                facts[f.key] = f
+        source = f"{env.name or env.server}: " + ", ".join(f"{f}/{p}" for f, p in wanted) + " (deployed)"
     else:
-        given = Path(a.package)
-        folder = given.parent if given.suffix.lower() == ".dtsx" and given.is_file() else Path(a.dir)
-        packages = {f.name: f.read_bytes() for f in sorted(folder.glob("*.dtsx"))}
-        source = f"{folder} (your files)"
-        if not packages:
-            raise ValueError(f"no .dtsx files in {folder}: give the package's path, --dir with the project's "
-                             f"packages, or --env for the deployed project")
-    facts = {n: deps.facts(n, data) for n, data in packages.items()}
-    if name.lower() not in {n.lower() for n in facts}:
-        return reply({"error": f"{name} is not in {source}; it has {', '.join(sorted(facts, key=str.lower))}"},
-                     EXIT_REFUSED)
-    g = deps.graph(name, facts, depth=a.depth, direction=a.direction)
+        folders = ([given.parent] if given.suffix.lower() == ".dtsx" and given.is_file() else []) + \
+                  [Path(d) for d in (a.dir or [])]
+        folders = list({f.resolve(): f for f in (folders or [Path(".")])}.values())
+        places = []
+        for folder in folders:
+            dtproj = next(iter(sorted(folder.glob("*.dtproj"))), None)
+            places.append((folder.resolve().parent.name, dtproj.stem if dtproj else folder.resolve().name))
+        labels = _labels(places) if len(folders) > 1 else [""] * len(folders)
+        home = labels[0] if given.suffix.lower() == ".dtsx" and given.is_file() else None
+        for folder, label in zip(folders, labels):
+            files = sorted(folder.glob("*.dtsx"))
+            if not files:
+                raise ValueError(f"no .dtsx files in {folder}: give the package's path, --dir with the project's "
+                                 f"packages, or --env for the deployed project")
+            info = deps.ProjectInfo.from_folder(folder, label)
+            for file in files:
+                f = deps.facts(file.name, file.read_bytes(), info)
+                facts[f.key] = f
+        source = ", ".join(str(f) for f in folders) + " (your files)"
+        if a.project and len(folders) > 1:
+            home = a.project
+    candidates = [k for k, f in facts.items() if f.package.lower() == name.lower()]
+    if home is not None and len(candidates) > 1:
+        candidates = [k for k in candidates if facts[k].project == home] or candidates
+    if not candidates:
+        return reply({"error": f"{name} is not in {source}; it has "
+                               f"{', '.join(sorted(facts, key=str.lower)[:40])}"}, EXIT_REFUSED)
+    if len(candidates) > 1:
+        return reply({"error": f"{name} is in several projects ({', '.join(sorted(candidates))}): give its path, "
+                               f"or --project with one of them"}, EXIT_REFUSED)
+    g = deps.graph(candidates[0], facts, depth=a.depth, direction=a.direction)
     if a.format == "mermaid":
         return Reply(None, text=deps.mermaid(g))
     if a.format == "dot":
         return Reply(None, text=deps.dot(g))
+    notes = []
     unknown = [n["package"] for n in g["nodes"] if n.get("unknown_sql")]
-    return reply({"source": source, **g, "mermaid": deps.mermaid(g),
-                  **({"note": f"{', '.join(unknown)} also run SQL that is built at run time or did not parse "
-                              f"(unknown_sql): links through it are not shown"} if unknown else {})})
+    if unknown:
+        notes.append(f"{', '.join(unknown)} also run SQL that is built at run time or did not parse (unknown_sql): "
+                     f"links through it are not shown")
+    no_db = [n["package"] for n in g["nodes"] if n.get("unknown_database")]
+    if no_db:
+        notes.append(f"the database of some connections in {', '.join(no_db)} is not known (unknown_database): their "
+                     f"tables are matched by schema.table only, and those links are marked unsure")
+    if len({f.project for f in facts.values()}) == 1 and not (a.also or a.all_projects):
+        notes.append("one project read: links to other projects (another layer's database) need --dir for each "
+                     "project folder, or --also FOLDER/PROJECT / --all-projects with --env")
+    return reply({"source": source, **g, **({"skipped": skipped} if skipped else {}), "mermaid": deps.mermaid(g),
+                  **({"note": "; ".join(notes)} if notes else {})})
 
 
 def cmd_executions(a) -> Reply:

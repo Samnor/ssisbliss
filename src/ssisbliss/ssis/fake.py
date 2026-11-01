@@ -150,6 +150,7 @@ class FakeProject:
     deployed_by: str = "LAB\\alice"
     bindings: list[dict] = field(default_factory=list)
     env_refs: list[dict] = field(default_factory=list)
+    env_values: dict = field(default_factory=dict)   # variable name (lower) -> value in its referenced environments
     history: dict[int, bytes] = field(default_factory=dict)
     created_by: dict = field(default_factory=dict)   # lsn -> who deployed that version (catalog.object_versions)
     restored: dict = field(default_factory=dict)     # lsn -> clock (next_lsn + 0.5) when last restored
@@ -303,6 +304,9 @@ class FakeCatalog:
 
     def environment_references(self, project_id: int) -> list[dict]:
         return copy.deepcopy(self._by_id(project_id).env_refs)
+
+    def environment_values(self, project_id: int) -> dict[str, str | None]:
+        return dict(self._by_id(project_id).env_values)
 
     def running_executions(self, folder: str, project: str) -> int:
         return self.running

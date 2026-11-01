@@ -9,6 +9,11 @@
   SQL built at run time is marked, not guessed. Links are indexed by table: 2000 packages graph in well
   under a second. `lab verify` checks it on a project saved by the SSIS object model. See
   [docs/deps.md](docs/deps.md).
+- Tables are matched with their database: the one the SQL names, else the one the connection manager points
+  at (its connection string, an expression on it from parameter values, or the catalog's value, including a
+  parameter bound to an SSIS environment). Every medallion layer's `dbo.Customer` is now its own table, in
+  `deps` and in `activity`; a link through a database that cannot be worked out is marked unsure.
+  `deps` reads several projects (`--dir` per folder, or `--also` / `--all-projects` with `--env`).
 - A mistyped command suggests the commands that start with it first (`deploy`: `deploy-packages`,
   `deploy-project`).
 - A rollback plan says when it undoes only your own deploys; a build refused for its protection level

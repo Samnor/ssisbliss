@@ -17,9 +17,9 @@ ISPAC = Path(r"C:\lab\work\deps\DEPS.ispac")
 WORK = Path(r"C:\lab\work\deps-run")
 F, P = "DEPSCHECK", "DEPS"
 EXPECTED_EDGES = {("Master.dtsx", "Extract.dtsx", "runs", ()), ("Master.dtsx", "Clean.dtsx", "runs", ()),
-                  ("Extract.dtsx", "Clean.dtsx", "tables", ("dbo.raworders",)),
-                  ("Clean.dtsx", "Report.dtsx", "tables", ("dbo.cleanorders",)),
-                  ("Report.dtsx", "Audit.dtsx", "tables", ("dbo.dailytotals",))}
+                  ("Extract.dtsx", "Clean.dtsx", "tables", ("labdeps.dbo.raworders",)),
+                  ("Clean.dtsx", "Report.dtsx", "tables", ("labdeps.dbo.cleanorders",)),
+                  ("Report.dtsx", "Audit.dtsx", "tables", ("labdeps.dbo.dailytotals",))}
 
 
 def target(folder: str, project: str) -> list[str]:

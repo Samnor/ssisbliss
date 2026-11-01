@@ -63,7 +63,7 @@ package is deployed as that package (with a warning).
 |---|---|
 | check packages before a PR / review | `ssisbliss lint --changed path/to/dtsx` (all: without `--changed`). Report errors and warnings by package, task and line; do not fix them yourself unless asked |
 | SQL in a package laid out readably | `ssisbliss format path/Pkg.dtsx` (only when they ask: it rewrites their file; `--check` changes nothing) |
-| how packages connect: what feeds Pkg, what breaks if Pkg changes, a diagram | `ssisbliss deps path/Pkg.dtsx` (the deployed project: add `--env dev`; `--direction up` or `down`, `--depth N`). Its `edges` say why each link exists; `order` is a run order; its `mermaid` renders in a PR or VS Code. Mention `unknown_sql`: links through SQL built at run time are not shown |
+| how packages connect: what feeds Pkg, what breaks if Pkg changes, a diagram | `ssisbliss deps path/Pkg.dtsx` (the deployed project: add `--env dev`; `--direction up` or `down`, `--depth N`). Other projects, e.g. other medallion layers: `--dir` per project folder, or with `--env` `--also FOLDER/PROJECT` / `--all-projects`; links marked `unsure` matched without a known database. Its `edges` say why each link exists; `order` is a run order; its `mermaid` renders in a PR or VS Code. Mention `unknown_sql`: links through SQL built at run time are not shown |
 | the SQL changes for a PR description | `ssisbliss sql-diff --formatted --markdown path/to/dtsx`: paste its output (git shows a package's SQL as one long line) |
 | is this SQL valid on the server? will the data flows still match the tables? | `ssisbliss lint --env dev path/Pkg.dtsx` (SSB210: the server's own parser; SSB401-405: data flow columns against the server's tables) |
 

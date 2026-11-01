@@ -220,7 +220,7 @@ class Activity:
                 via = []
                 if name.lower() in {x.lower() for x in f.calls}:
                     via.append(f"{c.name} runs {name} (Execute Package task)")
-                shared = sorted(f.reads & me.writes)
+                shared = [t for t, _ in deps.shared(f.reads, me.writes)]
                 if shared:
                     via.append(f"{c.name} reads {', '.join(shared)}, which {name} writes")
                 if via:

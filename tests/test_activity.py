@@ -61,7 +61,7 @@ def test_activity_does_not_read_a_server_package_your_copy_replaces(monkeypatch)
     # your copy counts under the deployed spelling; only the package you do not have comes from the server
     assert read == [("Main.dtsx", RELEASED["Main.dtsx"]), ("Stage_Customer.dtsx", theirs)]
     assert list(found) == ["Main.dtsx", "Stage_Customer.dtsx"]
-    assert found["Stage_Customer.dtsx"].writes == {"stage.mine"}
+    assert found["Stage_Customer.dtsx"].writes == {"?.stage.mine"}   # no connection manager: database not known
     assert found["Stage_Customer.dtsx"].package == "Stage_Customer.dtsx"
     assert server.package_hashes()["Main.dtsx"] == package_sha256(RELEASED["Main.dtsx"])
 
