@@ -5,11 +5,10 @@ execution id; `ssisbliss executions --id N` shows the failing task and what it r
 """
 from __future__ import annotations
 
-import argparse
-import json
 import sys
 from pathlib import Path
 
+from ..ssis.commands.common import Reply, reply
 from ..ssis.config import Environment, load_environment
 from .checks import step_problems
 from .source import SqlAgent
@@ -31,12 +30,6 @@ def troubleshooting_help(what: str) -> str:
     return f"{what[0].upper()}{what[1:]}. {TROUBLESHOOT}"
 
 
-def emit(doc: dict, code: int = 0) -> int:
-    json.dump(doc, sys.stdout, indent=2, default=str)
-    sys.stdout.write("\n")
-    return code
-
-
 def _environment(a) -> Environment:
     if a.env:
         return load_environment(a.env, Path(a.config) if a.config else None)
@@ -54,7 +47,7 @@ def _source(a):
     return SqlAgent(env.server, a.sql_user or env.sql_user, a.trust_server_certificate or env.trust_server_certificate)
 
 
-def cmd_jobs(a) -> int:
+def cmd_jobs(a) -> Reply:
     src = _source(a)
     views = job_views(src.jobs(), src.steps())
     if a.name:
@@ -65,7 +58,7 @@ def cmd_jobs(a) -> int:
         views = [v for v in views if v["running"]]
     doc: dict = {"server": src.server_name()}
     if a.check:
-        from ..ssis.cli import _catalog
+        from ..ssis.commands.common import _catalog
         found = step_problems(src.steps(), _catalog(_environment(a), a), doc["server"])
         for v in views:
             if v["name"] in found:
@@ -79,10 +72,10 @@ def cmd_jobs(a) -> int:
         for v in views:
             v.pop("steps")
     doc["jobs"] = views
-    return emit(doc)
+    return reply(doc)
 
 
-def cmd_chain(a) -> int:
+def cmd_chain(a) -> Reply:
     src = _source(a)
     found = chains(job_views(src.jobs(), src.steps()))
     if a.name:
@@ -92,17 +85,17 @@ def cmd_chain(a) -> int:
         if failed and not c["verdict"].startswith("running"):
             target = f"--env {a.env}" if a.env else f'--server "{a.server}"'
             c["next"] = f'ssisbliss history {target} "{failed}" --runs 1'
-    return emit({"server": src.server_name(), "chains": found})
+    return reply({"server": src.server_name(), "chains": found})
 
 
-def cmd_history(a) -> int:
+def cmd_history(a) -> Reply:
     src = _source(a)
     found = runs(src.history(a.job, a.runs))
     if not found:
         names = [j["name"] for j in src.jobs()]
         if a.job not in names:
             close = [n for n in names if a.job.lower() in n.lower()]
-            return emit({"error": f"no job named '{a.job}'" + (f"; did you mean: {', '.join(close)}" if close else "")}, 2)
+            return reply({"error": f"no job named '{a.job}'" + (f"; did you mean: {', '.join(close)}" if close else "")}, 2)
     mark_slow(found)
     if a.failed:
         found = [r for r in found if r.get("outcome") != "succeeded"]
@@ -110,7 +103,7 @@ def cmd_history(a) -> int:
     skipped = skipped_starts([s for s in src.steps() if s["job"] == a.job])
     if skipped:
         doc["skipped_starts"] = skipped   # runs list only the steps that ran: a skipped step would look absent
-    return emit(doc)
+    return reply(doc)
 
 
 def add_commands(sub) -> None:
@@ -153,21 +146,10 @@ def add_commands(sub) -> None:
     s.set_defaults(fn=cmd_history)
 
 
-def parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="ssisbliss", description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    add_commands(p.add_subparsers(dest="cmd", required=True))
-    return p
-
-
 def main(argv: list[str] | None = None) -> int:
-    a = parser().parse_args(argv)
-    try:
-        return a.fn(a)
-    except (ValueError, RuntimeError) as e:
-        return emit({"error": str(e)}, 2)
-    except Exception as e:  # noqa: BLE001 - always answer in JSON
-        return emit({"error": f"{type(e).__name__}: {e}"}, 1)
+    """The same as `ssisbliss`, which has these commands too."""
+    from ..ssis.cli import main as ssisbliss
+    return ssisbliss(argv)
 
 
 if __name__ == "__main__":

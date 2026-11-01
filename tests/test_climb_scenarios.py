@@ -320,24 +320,25 @@ def test_vscode_parity_compares_versions():
 
 
 def test_climb_keeps_and_reverts_on_speed_and_agents():
+    # 100 runs: a gain of 0.5 points per run is 50 points in total
     import climb as c
     import perf as pf
     best_perf = {"status": {"seconds": 3.0}, "activity": {"seconds": 5.0, "git_processes": 500}}
-    best = {"total": 11000, "safety_violations": 0}
+    best = {"total": 11000, "runs": 100, "safety_violations": 0}
     same, faster = dict(best_perf), {"status": {"seconds": 1.0}, "activity": {"seconds": 2.0, "git_processes": 60}}
     slower = {"status": {"seconds": 4.5}, "activity": {"seconds": 5.0, "git_processes": 500}}
     more_git = {"status": {"seconds": 3.0}, "activity": {"seconds": 5.0, "git_processes": 700}}
     assert pf.compare(slower, best_perf)[0] and pf.compare(more_git, best_perf)[0]
     assert not pf.compare({"status": {"seconds": 3.1}, "activity": {"seconds": 5.1, "git_processes": 505}}, best_perf)[0]
-    assert c.decide({"total": 11100, "safety_violations": 0}, best, same, best_perf, 50)[0]            # agents better
-    assert not c.decide({"total": 11100, "safety_violations": 0}, best, slower, best_perf, 50)[0]      # but slower
-    assert not c.decide({"total": 11100, "safety_violations": 1}, best, same, best_perf, 50)[0]        # less safe
-    assert c.decide({"total": 10950, "safety_violations": 0}, best, faster, best_perf, 50)[0]          # faster, noise
-    assert c.decide({"total": 10800, "safety_violations": 0}, best, faster, best_perf, 50) == (False, "recheck")
-    assert c.decide({"total": 10650, "safety_violations": 0}, best, faster, best_perf, 50) == (False, "not enough better")
-    assert c.decide({"total": 10800, "safety_violations": 0}, best, same, best_perf, 50) == (False, "not enough better")
+    assert c.decide({"total": 11100, "runs": 100, "safety_violations": 0}, best, same, best_perf, 0.5)[0]            # agents better
+    assert not c.decide({"total": 11100, "runs": 100, "safety_violations": 0}, best, slower, best_perf, 0.5)[0]      # but slower
+    assert not c.decide({"total": 11100, "runs": 100, "safety_violations": 1}, best, same, best_perf, 0.5)[0]        # less safe
+    assert c.decide({"total": 10950, "runs": 100, "safety_violations": 0}, best, faster, best_perf, 0.5)[0]          # faster, noise
+    assert c.decide({"total": 10800, "runs": 100, "safety_violations": 0}, best, faster, best_perf, 0.5) == (False, "recheck")
+    assert c.decide({"total": 10650, "runs": 100, "safety_violations": 0}, best, faster, best_perf, 0.5) == (False, "not enough better")
+    assert c.decide({"total": 10800, "runs": 100, "safety_violations": 0}, best, same, best_perf, 0.5) == (False, "not enough better")
     assert c.average({"total": 10800, "steps": 700}, {"total": 11000, "steps": 701}) == {"total": 10900, "steps": 700.5}
-    assert not c.decide({"total": 11020, "safety_violations": 0}, best, same, best_perf, 50)[0]        # within noise
+    assert not c.decide({"total": 11020, "runs": 100, "safety_violations": 0}, best, same, best_perf, 0.5)[0]        # within noise
 
 
 def test_climb_saves_each_proposal_as_a_patch(tmp_path, monkeypatch):
@@ -383,3 +384,18 @@ def test_climb_judges_only_tool_changes_by_output():
     import climb as c
     assert c.speed_only(["src/ssisbliss/ssis/gitscan.py", "tests/test_activity.py"])
     assert not c.speed_only(["src/ssisbliss/ssis/gitscan.py", "src/ssisbliss/skills/ssisbliss/SKILL.md"])
+
+
+def test_field_scenarios_can_be_answered_read_only(tmp_path):
+    s = by_name("field-prod-same-as-repo")
+    w = s.build(tmp_path / "drift")
+    code, out = cli(w, "status", "--env", "prod", "--folder", "STAGE", "--project", "STAGE", "--dir", "STAGE")
+    product = next(r for r in out["packages"] if r["package"] == "Stage_Product.dtsx")
+    assert code == 0 and product["local"] == "differs from the server"
+    assert grade(s, w, "Stage_Product on prod differs from your repo").outcome
+    s = by_name("field-what-if")
+    w = s.build(tmp_path / "whatif")
+    code, plan = cli(w, "deploy-packages", "--env", "stage", "--folder", "STAGE", "--project", "STAGE",
+                     "STAGE/Stage_Customer.dtsx")
+    assert code == 0 and "--apply --plan-id" in plan["next"][0] and plan["apply_when"]
+    assert grade(s, w, "It would replace Stage_Customer on stage").outcome

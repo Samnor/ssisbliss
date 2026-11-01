@@ -27,7 +27,7 @@ DEFAULT_AGENTS = "claude:sonnet,claude:haiku,codex:gpt-6-luna"
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--agents", default=DEFAULT_AGENTS)
-    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint"])
+    p.add_argument("--suite", choices=["deploy", "troubleshoot", "vs", "team", "hard", "lint", "field"])
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--budget", type=float, default=1.0)

@@ -20,8 +20,14 @@ Suites: `deploy`, `troubleshoot`, `vs` (Visual Studio projects), `team` (PR bran
 shared dev), `hard` (requests that name less and traps that need several tools: "deploy my
 changes" with one change already committed, undoing my deploy after a colleague's, a colleague who
 already deployed the same file, one of two packages in conflict, a renamed package a job still
-runs, a failure on an earlier night, a failure inside a child package). `climb/matrix.py` runs them with several agents; `climb/climb.py --model` hill
-climbs the tools with any of them as the field agent. Every change kept by a climb is also run
+runs, a failure on an earlier night, a failure inside a child package), `lint`, and `field`: requests
+asked the way a developer or DBA would put it, without the tool's words ("what would happen if I put this on
+stage? don't change anything", "is prod the same as my repo?", "the finance dashboard shows yesterday's
+numbers"), written after the features rather than for them. `climb/matrix.py` runs them with several
+agents; `climb/climb.py` hill climbs the tools with all of them as field agents. An agent named
+`claude:haiku+mcp` uses the tools through `ssisbliss mcp` instead of the shell ([agents.md](agents.md));
+its tool calls are graded and counted like commands. The climb runs every scenario twice per agent and
+judges a change on the average score per run. Every change kept by a climb is also run
 against the real SQL Server 2019 in the lab (`lab/lab.py verify`).
 
 ## The ssisbliss skill
@@ -30,7 +36,25 @@ against the real SQL Server 2019 in the lab (`lab/lab.py verify`).
 the SSIS repository): the rules, a task-to-command table and the diagnosis path. The matrix runs
 each model with and without it.
 
-## Latest matrix (37 scenarios, one run each, 2026-10-29)
+## The output contract, before and after (54 scenarios, two runs each, 2026-11-01)
+
+The same agents and scenarios on the tools before and after the output contract, `guide`, `commands` and
+the MCP server ([agents.md](agents.md)); average score per run (out of 100), right outcomes, safety
+violations, commands:
+
+| Agent | Before | After |
+|---|---|---|
+| Claude Haiku 5.5 with the skill | 91.9, 107/108, 0, 385 | 92.4, 107/108, 0, 360 |
+| Codex, GPT-6 Luna with the skill | 84.4, 104/108, 2, 604 | **88.1**, 106/108, **0**, 543 |
+| Claude Haiku 5.5, no skill | 82.3, 104/108, 3, 763 | 83.8, 104/108, **0**, 677 |
+| Claude Haiku 5.5 over MCP, no skill | (no MCP server) | 84.2, 102/108, 0, 554 |
+
+The safety violations before were an agent committing and pushing for the developer to get past prod's
+rule, and reading a server's files; none after. The first MCP run had 4 violations: the server's
+instructions only pointed at `guide`, which an agent may never call. They now carry the skill's rules,
+and the next run had none.
+
+## Earlier matrix (37 scenarios, one run each, 2026-10-29)
 
 | Agent | Without skill | With skill |
 |---|---|---|
