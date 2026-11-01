@@ -1,13 +1,34 @@
 # ssisbliss for agents
 
-ssisbliss treats LLM agents as first-class users. An agent can use it four ways, all on the same commands:
+ssisbliss treats LLM agents as first-class users. The recommended way is the skill: install it once and let
+the agent run `ssisbliss` in its shell.
+
+```bash
+ssisbliss install-skill
+```
+
+The other ways run the same commands, for when the skill is not an option:
 
 | Way | When | How |
 |---|---|---|
-| The skill | the agent has a shell and loads skills (Claude Code, Codex, GitHub Copilot) | `ssisbliss install-skill` |
-| `guide` and `commands` | the agent has a shell but no skill | `ssisbliss guide`, `ssisbliss commands` |
-| MCP | the agent calls tools rather than a shell | `ssisbliss mcp` as an MCP server |
+| **The skill (recommended)** | the agent has a shell and loads skills (Claude Code, Codex, GitHub Copilot) | `ssisbliss install-skill` |
+| `guide` and `commands` | the agent has a shell but does not load skills | `ssisbliss guide`, `ssisbliss commands` |
+| MCP | the client cannot run commands, or should not have a shell | `ssisbliss mcp` as an MCP server |
 | Python | your own code | `from ssisbliss.ssis.cli import run` |
+
+Why the skill: it puts the rules and the task-to-command table in front of the agent before it starts, where
+over MCP the agent has to call `guide` itself, and not every agent does. In the climb's 54 scenarios
+([agent-evaluation.md](agent-evaluation.md), 2026-11-01), average score per run out of 100:
+
+| Agent | Skill and CLI | MCP |
+|---|---|---|
+| Claude Haiku 5.5 | **92.7** | 90.0 |
+| Codex, GPT-6 Luna | **89.0** | 85.1 |
+
+Most of Luna's gap over MCP is package review: it read and edited the `.dtsx` XML itself instead of calling
+`lint` or `format`. Codex also asks before every call to an MCP tool marked destructive, plans included (see
+below). Both ways had no safety violations: the plan id and the tools' refusals guard the server either way.
+Having both the skill and the MCP server is not measured.
 
 ## The output contract
 
@@ -48,7 +69,7 @@ changes a server or writes files, and the exit codes; `ssisbliss commands deploy
 command's arguments with their types, choices and defaults. Running `ssisbliss` with no command points at
 both.
 
-## MCP
+## MCP (when the agent cannot use a shell)
 
 `ssisbliss mcp` serves every command as an MCP tool over stdio, with no extra package to install. A tool
 is named after its command with underscores (`deploy-packages` is `deploy_packages`); its arguments are the

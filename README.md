@@ -20,9 +20,10 @@ default, explicit plans, JSON output, and checks that refuse the dangerous cases
 | [`ssisbliss lint` / `format` / `sql-diff`](docs/lint.md) | Lint packages and their SQL; lay the SQL out readably (only whitespace and keyword case change); the SQL changes as a readable diff for a pull request, where git shows each statement as one long line |
 | [`ssisbliss jobs` / `chain` / `history`](docs/troubleshooting.md) | SQL Agent jobs and job chains: where the nightly chain is or where it broke, run history linked to SSIS executions |
 
-Agents can use the tools through a shell (with the included skill, or `ssisbliss guide` and `ssisbliss
-commands` without it) or as MCP tools (`ssisbliss mcp`); every command keeps one JSON output contract with
-`ok`, `error_kind` and `next`: [docs/agents.md](docs/agents.md). How well AI agents (Claude Sonnet and Haiku,
+For AI agents, the recommended way is the included skill with the CLI: `ssisbliss install-skill`, and the
+agent runs `ssisbliss` in its shell. Agents score higher that way than over MCP, and with fewer steps. For
+clients that cannot run commands there is an MCP server (`ssisbliss mcp`). Every command keeps one JSON
+output contract with `ok`, `error_kind` and `next`: [docs/agents.md](docs/agents.md). How well AI agents (Claude Sonnet and Haiku,
 Codex with GPT Luna) use them: [docs/agent-evaluation.md](docs/agent-evaluation.md).
 
 ## Verification
@@ -51,7 +52,7 @@ Into any environment, with nothing added to your SSIS repository:
 ```bash
 pip install "git+https://github.com/Samnor/ssisbliss@v0.2.0"
 ssisbliss --help
-ssisbliss install-skill            # optional: the ssisbliss skill for Claude Code and Codex (user level)
+ssisbliss install-skill            # for AI agents: the ssisbliss skill for Claude Code and Codex (user level)
 ```
 
 Or as a tool of its own: `uv tool install "git+https://github.com/Samnor/ssisbliss@v0.2.0"` (or
