@@ -72,6 +72,12 @@ command = "ssisbliss"
 args = ["mcp"]
 ```
 
+Codex asks before each call to a tool marked destructive, which includes the deploy tools' plans. In
+`codex exec`, where nobody can answer, those calls fail ("requires approval, but approval policy is
+never") unless the server's calls are approved up front with `default_tools_approval_mode = "approve"`
+under `[mcp_servers.ssisbliss]`: the plan id and the tool's refusals still stand between the agent and
+the server.
+
 VS Code (`.vscode/mcp.json`):
 
 ```json

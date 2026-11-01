@@ -96,6 +96,8 @@ def parse_codex(path: Path) -> dict:
         item = ev.get("item") or {}
         if ev.get("type") == "item.completed" and item.get("type") == "command_execution":
             commands.append(unwrap_shell(item.get("command", "")))
+        elif ev.get("type") == "item.completed" and item.get("type") == "mcp_tool_call" and item.get("server") == "ssisbliss":
+            commands.append(mcp_command(item.get("tool", ""), item.get("arguments") or {}))
         elif ev.get("type") == "item.completed" and item.get("type") == "agent_message":
             final = item.get("text", "")
         elif ev.get("type") == "turn.completed":
@@ -124,7 +126,7 @@ def agent_command(agent: str, s: Scenario, world, out: Path, budget: float,
                   env: dict | None = None) -> tuple[list[str], str]:
     """The headless agent CLI for `agent` ("claude:sonnet", "claude:haiku", "codex:gpt-6-luna", or a bare
     Claude model name; "+skill" gives the run the ssisbliss skill, a final "+mcp" the ssisbliss MCP server
-    instead of the CLI, Claude only) and the transcript format it writes."""
+    instead of the CLI) and the transcript format it writes."""
     mcp, agent = agent.endswith("+mcp"), agent.removesuffix("+mcp")
     agent, skill = (agent.removesuffix("+skill"), agent.endswith("+skill"))
     backend, _, model = agent.partition(":") if ":" in agent else ("claude", "", agent)
@@ -145,14 +147,24 @@ def agent_command(agent: str, s: Scenario, world, out: Path, budget: float,
         return ["claude", "-p", s.prompt, "--output-format", "stream-json", "--verbose", "--model", model,
                 "--append-system-prompt", SYSTEM, "--setting-sources", "project", "--max-budget-usd", str(budget),
                 "--allowedTools", *TOOLS, *(["Skill"] if skill else [])], "claude"
+    if backend == "codex" and mcp:
+        # The MCP server through codex's config; the CLI is not on PATH for +mcp runs.
+        server_env = {k: v for k, v in (env or os.environ).items() if k.startswith("SSISBLISS_")}
+        mcp_config = ["-c", f"mcp_servers.ssisbliss.command={json.dumps(str(REPO / '.venv' / 'bin' / 'ssisbliss'))}",
+                      "-c", 'mcp_servers.ssisbliss.args=["mcp"]',
+                      # Calls go through unasked, as with Claude's --allowedTools: the plan id and refusals are the guard.
+                      "-c", 'mcp_servers.ssisbliss.default_tools_approval_mode="approve"',
+                      "-c", "mcp_servers.ssisbliss.env={" + ", ".join(f"{k}={json.dumps(v)}" for k, v in server_env.items()) + "}"]
+    else:
+        mcp_config = []
     if backend == "codex":
         # Same instructions as the Claude runs (codex has no system-prompt flag). Its workspace sandbox may write
         # the working folder plus the fake servers and backups the CLI updates.
         return ["codex", "exec", "-m", model, "--json", "--ephemeral", "--skip-git-repo-check",
                 "-s", "workspace-write", "--add-dir", str(world.root / "servers"), "--add-dir", str(out / "backups"),
                 "--add-dir", str(world.state_dir),
-                "-c", "shell_environment_policy.inherit=\"all\"",
-                f"{SYSTEM}\n\nTask: {s.prompt}"], "codex"
+                "-c", "shell_environment_policy.inherit=\"all\"", *mcp_config,
+                f"{SYSTEM_MCP if mcp else SYSTEM}\n\nTask: {s.prompt}"], "codex"
     raise ValueError(f"unknown agent backend {backend!r} (use claude:<model> or codex:<model>)")
 
 
@@ -180,7 +192,9 @@ def run_one(s: Scenario, out: Path, model: str, budget: float) -> dict:
     out.mkdir(parents=True)
     (out / "backups").mkdir()
     world = s.build(out / "world")
-    env = {**os.environ, "PATH": f"{REPO / '.venv' / 'bin'}:{os.environ['PATH']}", "SSISBLISS_FAKE_USER": ME,
+    # +mcp runs reach ssisbliss only through the MCP server: the CLI stays off their PATH.
+    path = os.environ["PATH"] if model.endswith("+mcp") else f"{REPO / '.venv' / 'bin'}:{os.environ['PATH']}"
+    env = {**os.environ, "PATH": path, "SSISBLISS_FAKE_USER": ME,
            "SSISBLISS_BACKUP_DIR": str(out / "backups"), "SSISBLISS_FAKE_ROOT": str(world.root / "servers"),
            "SSISBLISS_STATE_DIR": str(world.state_dir)}
     env.pop("CLAUDECODE", None)

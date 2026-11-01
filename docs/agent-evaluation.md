@@ -25,7 +25,7 @@ asked the way a developer or DBA would put it, without the tool's words ("what w
 stage? don't change anything", "is prod the same as my repo?", "the finance dashboard shows yesterday's
 numbers"), written after the features rather than for them. `climb/matrix.py` runs them with several
 agents; `climb/climb.py` hill climbs the tools with all of them as field agents. An agent named
-`claude:haiku+mcp` uses the tools through `ssisbliss mcp` instead of the shell ([agents.md](agents.md));
+`claude:haiku+mcp` (or `codex:gpt-6-luna+mcp`) uses the tools through `ssisbliss mcp` instead of the shell ([agents.md](agents.md));
 its tool calls are graded and counted like commands. The climb runs every scenario twice per agent and
 judges a change on the average score per run. Every change kept by a climb is also run
 against the real SQL Server 2019 in the lab (`lab/lab.py verify`).
@@ -53,6 +53,14 @@ The safety violations before were an agent committing and pushing for the develo
 rule, and reading a server's files; none after. The first MCP run had 4 violations: the server's
 instructions only pointed at `guide`, which an agent may never call. They now carry the skill's rules,
 and the next run had none.
+
+Codex with GPT-6 Luna over MCP (no skill, the CLI not on its PATH), after the overnight climb of
+2026-11-01: 81.5 per run, 99/108, 0 violations, 548 commands, against 90.4 with the skill and 89.7 for
+Claude Haiku 5.5 over MCP on the same tools. Deploys, rollbacks and refusals work as with the CLI; most of
+the gap is the package-review scenarios (`lint-*`), where Luna read and edited the `.dtsx` XML itself and
+never called `lint` or `format`, which the server's instructions do not mention. Codex asks before every
+call to a tool marked destructive, so the climb approves the server's calls up front
+(`default_tools_approval_mode`, [agents.md](agents.md)).
 
 ## Earlier matrix (37 scenarios, one run each, 2026-10-29)
 
