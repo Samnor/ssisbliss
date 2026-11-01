@@ -42,6 +42,10 @@ class BuildError(ValueError):
     pass
 
 
+class ProtectionRefused(BuildError):
+    """The project or a package is not DontSaveSensitive: only the developer can change that."""
+
+
 @dataclass
 class DtProj:
     path: Path
@@ -88,11 +92,11 @@ def build(dtproj: Path, configuration: str | None = None) -> tuple[bytes, dict]:
 
     level = manifest.get(f"{_S}ProtectionLevel", "DontSaveSensitive")
     if level != "DontSaveSensitive":
-        raise BuildError(f"the project's protection level is {level}. Building it means re-encrypting sensitive values "
-                         f"with your Windows user key or a password, which only Visual Studio or SSISBuild.exe can do, "
-                         f"and the catalog cannot use user-key encryption anyway. Set the project and its packages to "
-                         f"DontSaveSensitive and keep sensitive values in catalog environments, or build with "
-                         f"SSISBuild.exe -stripSensitive")
+        raise ProtectionRefused(f"the project's protection level is {level}. Building it means re-encrypting sensitive "
+                                f"values with your Windows user key or a password, which only Visual Studio or "
+                                f"SSISBuild.exe can do, and the catalog cannot use user-key encryption anyway. Set the "
+                                f"project and its packages to DontSaveSensitive and keep sensitive values in catalog "
+                                f"environments, or build with SSISBuild.exe -stripSensitive")
 
     packages = [p.get(f"{_S}Name", "") for p in manifest.findall(f"{_S}Packages/{_S}Package")]
     conmgrs = [c.get(f"{_S}Name", "") for c in manifest.findall(f"{_S}ConnectionManagers/{_S}ConnectionManager")]
@@ -161,7 +165,7 @@ def _refresh_package_metadata(info: ET.Element | None, name: str, data: bytes) -
     props, params = _package_values(data)
     if props["ProtectionLevel"] not in ("0",):
         level = PROTECTION_LEVELS.get(int(props["ProtectionLevel"]), props["ProtectionLevel"])
-        raise BuildError(f"{name} has protection level {level}; set it to DontSaveSensitive like the project")
+        raise ProtectionRefused(f"{name} has protection level {level}; set it to DontSaveSensitive like the project")
     meta = next((m for m in info.findall(f"{_S}PackageMetaData") if m.get(f"{_S}Name") == name), None)
     changes: list[str] = []
     if meta is None:

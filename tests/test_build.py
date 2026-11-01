@@ -170,6 +170,26 @@ def test_deploy_project_from_dtproj_only_one_package(tmp_path, monkeypatch, caps
     assert plan["build"]["refreshed_metadata"]["Load_B.dtsx"]
 
 
+def test_refused_user_key_build_points_at_the_server_and_builds_nothing(tmp_path, monkeypatch, capsys):
+    proj = _project_copy(tmp_path, "userkey")
+    code, out = _cli(monkeypatch, capsys, None, "build", str(proj / "Corpus.dtproj"))
+    assert code == 2 and out["error_kind"] == "refused"
+    assert "EncryptSensitiveWithUserKey" in out["error"] and "DontSaveSensitive" in out["error"]
+    assert out["next"] == [f"ssisbliss status --env ENV --dir {proj}"]
+    assert "not yours" in out["note"]
+    assert not (proj / "bin").exists()
+    # What `next` names answers: the server's copy against the developer's files, on a refused project too.
+    basic = _project_copy(tmp_path / "server")
+    code, status = _cli(monkeypatch, capsys, _server_with(basic), "status", *T, "--dir", str(proj))
+    assert code == 0 and {p["package"] for p in status["packages"]} == {"Load_A.dtsx", "Load_B.dtsx"}
+
+
+def test_other_build_errors_are_not_given_the_protection_advice(tmp_path, monkeypatch, capsys):
+    proj = _project_copy(tmp_path)
+    code, out = _cli(monkeypatch, capsys, None, "build", str(proj / "Corpus.dtproj"), "-c", "Nope")
+    assert code == 2 and "next" not in out and "note" not in out
+
+
 def test_deploy_project_all_checks_every_package_for_others_changes(tmp_path, monkeypatch, capsys):
     proj = _project_copy(tmp_path)
     cat = _server_with(proj)
