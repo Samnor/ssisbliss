@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .lint import RULES, Finding
+from .findings import RULES, Finding
 from .model import Connection, Package, ProjectInfo, Task
 _TEMP = re.compile(r"\b(?:CREATE\s+TABLE|INTO)\s+(##?\w+)", re.I)
 _JET = re.compile(r"Provider\s*=\s*Microsoft\.Jet\.OLEDB\.4\.0", re.I)

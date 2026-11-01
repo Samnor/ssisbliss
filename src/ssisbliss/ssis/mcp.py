@@ -61,12 +61,11 @@ def _schema(sp: argparse.ArgumentParser) -> dict:
     return {"type": "object", "properties": props, **({"required": required} if required else {})}
 
 
-def tools() -> list[dict]:
-    from .cli import parser
+def tools(parser: argparse.ArgumentParser) -> list[dict]:
     from .commands.about import WRITES_FILES, _subcommands, catalog
-    found = catalog(parser())
+    found = catalog(parser)
     out = []
-    for name, (sp, summary) in _subcommands(parser()).items():
+    for name, (sp, summary) in _subcommands(parser).items():
         if name in NOT_TOOLS:
             continue
         changes = found[name]["changes_server"]
@@ -81,11 +80,10 @@ def tools() -> list[dict]:
     return out
 
 
-def argv_for(command: str, args: dict) -> list[str]:
+def argv_for(parser: argparse.ArgumentParser, command: str, args: dict) -> list[str]:
     """The command line a tool call stands for: positionals in order, then options."""
-    from .cli import parser
     from .commands.about import _subcommands
-    sp = _subcommands(parser())[command][0]
+    sp = _subcommands(parser)[command][0]
     actions = {x.dest: x for x in sp._actions if not isinstance(x, argparse._HelpAction)}
     unknown = sorted(set(args) - set(actions) - {"cwd"})
     if unknown:
@@ -108,15 +106,14 @@ def argv_for(command: str, args: dict) -> list[str]:
     return [command, *options, *(["--", *positional] if any(p.startswith("-") for p in positional) else positional)]
 
 
-def call(name: str, args: dict) -> tuple[str, dict | None, bool]:
+def call(parser: argparse.ArgumentParser, run, name: str, args: dict) -> tuple[str, dict | None, bool]:
     """Run a tool: (text, the JSON document or None for text output, whether it is an error)."""
-    from .cli import run
-    command = next((t["annotations"]["title"] for t in tools() if t["name"] == name), None)
+    command = next((t["annotations"]["title"] for t in tools(parser) if t["name"] == name), None)
     if command is None:
         doc = {"ok": False, "error_kind": "usage", "error": f"no tool '{name}'", "next": ["commands"]}
         return json.dumps(doc), doc, True
     try:
-        argv = argv_for(command, args)
+        argv = argv_for(parser, command, args)
     except ValueError as e:
         doc = {"ok": False, "error_kind": "usage", "error": str(e)}
         return json.dumps(doc), doc, True
@@ -148,9 +145,9 @@ def handle(msg: dict, state: dict) -> dict | None:
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": tools()}
+        result = {"tools": tools(state["parser"])}
     elif method == "tools/call":
-        text, doc, error = call(params.get("name", ""), params.get("arguments") or {})
+        text, doc, error = call(state["parser"], state["run"], params.get("name", ""), params.get("arguments") or {})
         result = {"content": [{"type": "text", "text": text}], "isError": error}
         if doc is not None and state.get("protocol", PROTOCOLS[0]) >= "2025-06-18":
             result["structuredContent"] = doc
@@ -159,9 +156,10 @@ def handle(msg: dict, state: dict) -> dict | None:
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
 
-def serve(stdin=None, stdout=None) -> int:
+def serve(parser: argparse.ArgumentParser, run, stdin=None, stdout=None) -> int:
+    """parser and run: the CLI's, so a tool is exactly the command of the same name."""
     stdin, stdout = stdin or sys.stdin, stdout or sys.stdout
-    state: dict = {}
+    state: dict = {"parser": parser, "run": run}
     for line in stdin:
         if not line.strip():
             continue

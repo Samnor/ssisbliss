@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .dtsx import DTS
-from .lint import Finding
+from .findings import Finding
 from .model import Package, ProjectInfo
 
 _D = f"{{{DTS}}}"

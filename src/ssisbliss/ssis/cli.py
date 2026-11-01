@@ -314,12 +314,12 @@ def parser() -> argparse.ArgumentParser:
 
 def run(argv: list[str]) -> Reply:
     """Run one command and return its answer, as printed (the CLI and the MCP server both use this)."""
-    common._target_from.clear()
-    common._argv[:] = argv
     p = parser()
+    invocation = common.Invocation(list(argv), p)
     a = None
     try:
         a = p.parse_args(argv)
+        a.invocation = invocation
         if a.fn is None:
             raise ValueError("`ssisbliss mcp` is a server: start it from your MCP client's configuration")
         r = a.fn(a)
@@ -334,7 +334,7 @@ def run(argv: list[str]) -> Reply:
             r.doc["next"] = ["check the server name, the network and the login (ssisbliss.toml, --sql-user, "
                              "SSISBLISS_SQL_PASSWORD); `ssisbliss inspect` with the same --env tests the connection"]
     if r.doc is not None:
-        r.doc = envelope(r.doc, r.code, a, common._target_from)
+        r.doc = envelope(r.doc, r.code, a, invocation.target_from)
     return r
 
 
@@ -342,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["mcp"] and "-h" not in argv and "--help" not in argv:
         from .mcp import serve
-        return serve()
+        return serve(parser(), run)
     r = run(argv)
     if r.text is not None:
         sys.stdout.write(r.text)

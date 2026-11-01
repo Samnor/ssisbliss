@@ -47,9 +47,10 @@ SYSTEM_MCP = SYSTEM.replace("The ssisbliss CLI is installed for SSIS catalog wor
 def mcp_command(tool: str, args: dict) -> str:
     """An MCP tool call as the command it runs, so graders and step counts treat both the same."""
     import shlex
+    from ssisbliss.ssis.cli import parser
     from ssisbliss.ssis.mcp import argv_for
     try:
-        return "ssisbliss " + shlex.join(argv_for(tool.replace("_", "-"), args))
+        return "ssisbliss " + shlex.join(argv_for(parser(), tool.replace("_", "-"), args))
     except Exception:   # noqa: BLE001 - an unknown tool or argument still counts as a step
         return f"ssisbliss {tool} {json.dumps(args)}"
 

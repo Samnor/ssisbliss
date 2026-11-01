@@ -1,7 +1,8 @@
 """What the commands share: the answer they return, and the environment, catalog and target they work on."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import base
@@ -18,20 +19,22 @@ class Reply:
     text: str | None = None
 
 
-# Where a --folder / --project that was not given came from; shown in the command's output.
-_target_from: dict[str, str] = {}
-# The arguments of the command being run: a plan's `next` is the same command with --apply --plan-id.
-_argv: list[str] = []
+@dataclass
+class Invocation:
+    """One command being run, on its parsed arguments as `a.invocation`."""
+    argv: list[str]                     # what was typed: a plan's `next` is the same command with --apply --plan-id
+    parser: argparse.ArgumentParser | None = None
+    target_from: dict[str, str] = field(default_factory=dict)   # where a --folder / --project not given came from
 
 
 def reply(doc: dict, code: int = EXIT_OK) -> Reply:
     return Reply(doc, code)
 
 
-def _apply_command(plan_id: str, extra: list[str] | None = None) -> str:
+def _apply_command(a, plan_id: str, extra: list[str] | None = None) -> str:
     import shlex
     args, skip = [], False
-    for x in _argv:
+    for x in a.invocation.argv:
         if skip:
             skip = False
         elif x in ("--plan-id", "--confirm-env"):
@@ -53,7 +56,7 @@ def _env(a) -> Environment:
 def _catalog(env: Environment, a) -> SqlCatalog:
     if env.server.startswith("fake://"):
         from ..fake import FakeCatalog, fake_location
-        return FakeCatalog.load(fake_location(env.server))  # type: ignore[return-value]
+        return FakeCatalog.load(fake_location(env.server), applying=getattr(a, "apply", False))  # type: ignore[return-value]
     return SqlCatalog(connection_string(env.server, a.sql_user or env.sql_user,
                                         a.trust_server_certificate or env.trust_server_certificate))
 
@@ -87,8 +90,8 @@ def _target_from_server(a, cat, directory: Path, ask: str) -> None:
         for option, value in zip(("folder", "project"), holding[0]):
             if not getattr(a, option):
                 setattr(a, option, value)
-                _target_from[option] = f"{value} {why}"
-                _argv.extend([f"--{option}", value])
+                a.invocation.target_from[option] = f"{value} {why}"
+                a.invocation.argv.extend([f"--{option}", value])
         return
     raise ValueError(ask + _targets_on_server(directory, rows, holding))
 
@@ -117,7 +120,7 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
         else:
             from ..build import load_dtproj
             a.project = load_dtproj(dtproj).name
-            _target_from["project"] = f"{a.project} (from {dtproj})"
+            a.invocation.target_from["project"] = f"{a.project} (from {dtproj})"
     if not a.folder:
         server = cat.server_info().server_name
         mine = base.folders(directory, server, a.project)
@@ -128,10 +131,10 @@ def _target(a, env: Environment, cat, directory: Path, dtproj: Path | None = Non
                                  f"({', '.join(sorted(mine))})")
             a.folder = latest
             others = f"; also deployed to {', '.join(sorted(f for f in mine if f != latest))}" if len(mine) > 1 else ""
-            _target_from["folder"] = f"{a.folder} (where you last deployed or pulled {a.project} on {server}{others})"
+            a.invocation.target_from["folder"] = f"{a.folder} (where you last deployed or pulled {a.project} on {server}{others})"
         elif env.folder:
             a.folder = env.folder
-            _target_from["folder"] = f"{a.folder} (folder of environment {env.name} in ssisbliss.toml)"
+            a.invocation.target_from["folder"] = f"{a.folder} (folder of environment {env.name} in ssisbliss.toml)"
         else:
             _target_from_server(a, cat, directory,
                                 f"give --folder: you have not deployed or pulled {a.project} on {server} from this "
@@ -251,17 +254,17 @@ def _finish(a, env: Environment, catalog: SqlCatalog, plan: Plan, after_apply=No
     doc = plan.to_dict()
     if not a.apply:
         if plan.can_apply:
-            doc["next"] = [_apply_command(plan.plan_id)]
+            doc["next"] = [_apply_command(a, plan.plan_id)]
             doc["apply_when"] = ("the developer asked for this change (not only for a plan or a check); otherwise "
                                  "show them the plan")
         return reply(doc, EXIT_OK if not plan.errors else EXIT_REFUSED)
     if env.confirm and a.confirm_env != env.name:
         return reply({"status": "refused", "reason": f"applying to {env.name} needs --confirm-env {env.name}",
-                      "plan": doc, **({"next": [_apply_command(plan.plan_id, ["--confirm-env", env.name])]}
+                      "plan": doc, **({"next": [_apply_command(a, plan.plan_id, ["--confirm-env", env.name])]}
                                       if plan.can_apply else {})}, EXIT_REFUSED)
     if not a.plan_id:
         return reply({"status": "refused", "reason": "--apply needs --plan-id from a reviewed plan",
-                      "plan": doc, **({"next": [_apply_command(plan.plan_id)]} if plan.can_apply else {})},
+                      "plan": doc, **({"next": [_apply_command(a, plan.plan_id)]} if plan.can_apply else {})},
                      EXIT_REFUSED)
     result, code = apply(catalog, plan, a.plan_id, Path(a.backup_dir).expanduser())
     if after_apply and result.get("new_lsn") is not None:

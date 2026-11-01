@@ -12,7 +12,6 @@ import io
 import json
 import os
 import re
-import sys
 import uuid
 import zipfile
 from dataclasses import asdict, dataclass, field
@@ -180,7 +179,7 @@ class FakeCatalog:
 
     # --- persistence
     @classmethod
-    def load(cls, path: str | Path) -> "FakeCatalog":
+    def load(cls, path: str | Path, applying: bool = False) -> "FakeCatalog":
         path = Path(path)
         state = json.loads((path / "state.json").read_text())
         with open(path / "access.log", "a") as f:   # lets graders see the server was reached
@@ -204,8 +203,7 @@ class FakeCatalog:
         c.execution_rows = ex.get("rows", [])
         c.event_rows, c.failed_rows, c.parameter_rows = (
             {int(k): v for k, v in ex.get(part, {}).items()} for part in ("events", "failed", "parameters"))
-        from .commands.common import _argv   # the command being run, also when it comes over MCP
-        if ("--apply" in sys.argv or "--apply" in _argv) and c.scheduled:
+        if applying and c.scheduled:
             c._run_scheduled()
         return c
 

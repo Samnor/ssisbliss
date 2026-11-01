@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from ssisbliss.agent import cli
+from ssisbliss.ssis import cli
 from ssisbliss.agent.status import (
     chains,
     job_views,

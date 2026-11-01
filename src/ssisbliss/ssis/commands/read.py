@@ -8,7 +8,7 @@ from ..dtsx import as_editable
 from ..executions import FAILED, STATUS_IDS, report
 from ..ispac import Ispac
 from ..outline import outline
-from .common import Reply, _argv, _catalog, _env, _target, reply
+from .common import Reply, _catalog, _env, _target, reply
 
 
 def cmd_inspect(a) -> Reply:
@@ -107,7 +107,7 @@ def cmd_deps(a) -> Reply:
                 found = _project_folders([folder], parent=folder.resolve())
                 return reply({"error": f"no .dtsx files in {folder}: give the package's path, --dir with the "
                                        f"project's packages, or --env for the deployed project",
-                              **({"next": [_same(None, None, [x for d in found for x in ("--dir", d)])]}
+                              **({"next": [_same(a, None, None, [x for d in found for x in ("--dir", d)])]}
                                  if found else {})}, EXIT_REFUSED)
             info = deps.ProjectInfo.from_folder(folder, label)
             for file in files:
@@ -127,12 +127,12 @@ def cmd_deps(a) -> Reply:
         return reply({"error": f"{name} is not in {source}" + (f"; did you mean {', '.join(by_lower[c] for c in close)}?"
                                                                   if close else "") +
                                f"; it has {', '.join(sorted(facts, key=str.lower)[:40])}",
-                      "next": [_same(a.package, str(given.with_name(by_lower[c])) if given.parent != Path(".")
+                      "next": [_same(a, a.package, str(given.with_name(by_lower[c])) if given.parent != Path(".")
                                      else by_lower[c]) for c in close]}, EXIT_REFUSED)
     if len(candidates) > 1:
         return reply({"error": f"{name} is in several projects ({', '.join(sorted(candidates))}): give its path, "
                                f"or --project with one of them",
-                      "next": [_same(None, None, ["--project", facts[k].project]) for k in sorted(candidates)]},
+                      "next": [_same(a, None, None, ["--project", facts[k].project]) for k in sorted(candidates)]},
                      EXIT_REFUSED)
     g = deps.graph(candidates[0], facts, depth=a.depth, direction=a.direction)
     if a.format == "mermaid":
@@ -155,12 +155,12 @@ def cmd_deps(a) -> Reply:
     design = [e for e in g["edges"] if e.get("unsure") and "your files" in e.get("why_unsure", "")]
     if a.env or a.server:
         if one:
-            nxt.append(_same(None, None, ["--all-projects"]))
+            nxt.append(_same(a, None, None, ["--all-projects"]))
     else:
         if one:
             others = _project_folders(folders)
             if others:
-                nxt.append(_same(None, None, [x for d in others for x in ("--dir", d)]))
+                nxt.append(_same(a, None, None, [x for d in others for x in ("--dir", d)]))
         if design or one:
             nxt += _deployed(a, given, folders[0])
     if design:
@@ -171,10 +171,10 @@ def cmd_deps(a) -> Reply:
     return reply({**doc, **({"next": nxt} if nxt else {})})
 
 
-def _same(old: str | None, new: str | None, extra: list[str] | None = None) -> str:
+def _same(a, old: str | None, new: str | None, extra: list[str] | None = None) -> str:
     """This deps command with the package replaced and options added: ready to run."""
     import shlex
-    args = [new if old is not None and x == old else x for x in _argv]
+    args = [new if old is not None and x == old else x for x in a.invocation.argv]
     return "ssisbliss " + shlex.join([*args, *(extra or [])])
 
 

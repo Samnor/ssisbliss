@@ -2,7 +2,6 @@
 import json
 
 from ssisbliss.agent.checks import same_server, step_problems
-from ssisbliss.agent import cli as agent_cli
 from ssisbliss.ssis import cli
 from ssisbliss.ssis.fake import FakeCatalog, dtsx, ispac
 from ssisbliss.ssis.health import judge
@@ -93,7 +92,7 @@ def test_jobs_check_command(tmp_path, capsys):
                   "last_status": None, "last_duration": None, "last_message": None, "enabled_schedules": 1}
                  for n in ("1 IMPORT", "2 STAGE")],
         "steps": [step("1 IMPORT", 1, ssis("Main.dtsx")), step("2 STAGE", 1, ssis("Stage_Cust.dtsx"))]}))
-    assert agent_cli.main(["jobs", "--server", f"fake://{tmp_path}", "--check", "--problems", "--brief"]) == 0
+    assert cli.main(["jobs", "--server", f"fake://{tmp_path}", "--check", "--problems", "--brief"]) == 0
     doc = json.loads(capsys.readouterr().out)
     assert doc["checked"].startswith("1 step problem")
     assert [j["name"] for j in doc["jobs"]] == ["2 STAGE"] and "steps" not in doc["jobs"][0]

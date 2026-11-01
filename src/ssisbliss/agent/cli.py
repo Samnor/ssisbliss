@@ -5,7 +5,6 @@ execution id; `ssisbliss executions --id N` shows the failing task and what it r
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from ..ssis.commands.common import Reply, reply
@@ -145,12 +144,3 @@ def add_commands(sub) -> None:
     s.add_argument("--failed", action="store_true", help="only runs that did not succeed")
     s.set_defaults(fn=cmd_history)
 
-
-def main(argv: list[str] | None = None) -> int:
-    """The same as `ssisbliss`, which has these commands too."""
-    from ..ssis.cli import main as ssisbliss
-    return ssisbliss(argv)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

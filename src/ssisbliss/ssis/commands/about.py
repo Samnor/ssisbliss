@@ -55,12 +55,12 @@ def catalog(p: argparse.ArgumentParser) -> dict[str, dict]:
 
 
 def cmd_commands(a) -> Reply:
-    from ..cli import parser
-    found = catalog(parser())
+    parser = a.invocation.parser
+    found = catalog(parser)
     if a.name:
         if a.name not in found:
             raise ValueError(f"no command '{a.name}'; the commands are {', '.join(found)}")
-        return reply({"command": a.name, **found[a.name], "usage": _subcommands(parser())[a.name][0].format_usage().strip()})
+        return reply({"command": a.name, **found[a.name], "usage": _subcommands(parser)[a.name][0].format_usage().strip()})
     return reply({
         "schema_version": SCHEMA_VERSION,
         "contract": ("stdout is one JSON document; `ok` is true exactly when the exit code is 0; when it is false, "
