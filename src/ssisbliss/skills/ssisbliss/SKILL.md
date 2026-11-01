@@ -79,8 +79,8 @@ package is deployed as that package (with a warning).
    package was renamed): run its `next` (`ssisbliss inspect ...`) and compare the names.
 3. `ssisbliss executions --env prod --id N` - the failing task (its `package` may be a child
    package the job's package runs: report the child), its error, its SQL or the
-   PowerShell/Python command, `connection_parameters` (with `override_note` when a job step
-   overrides a parameter), and a `hint`. No messages at all usually means logging level None.
+   PowerShell/Python command, the `database` its connection used in that run, `connection_parameters`
+   (with `override_note` when a job step overrides a parameter), and a `hint`. No messages at all usually means logging level None.
    `explained` gives the usual cause and fix for known errors (`real_error` is the error inside an
    OLE DB wrapper; `run_as` the account the run used): report it, but say it is the likely cause.
 4. `ssisbliss outline --env prod --folder F --project P --package Pkg` - what the package does.

@@ -52,6 +52,7 @@ class ProjectInfo:
     values: dict[str, str | None] = field(default_factory=dict)    # parameter name, lower case
     managers: list[bytes] = field(default_factory=list)            # the project's .conmgr files
     design: bool = False      # your files: the catalog may set other parameter and connection manager values
+    package_values: dict[str, str | None] = field(default_factory=dict)   # package parameters set from outside
 
     @staticmethod
     def params(data: bytes | None) -> dict[str, str | None]:
@@ -335,6 +336,7 @@ def _values(root: ET.Element, project: ProjectInfo | None) -> dict[str, str | No
         value = next((x.text or "" for x in p.findall(f"{_D}Property") if x.get(f"{_D}Name") == "ParameterValue"), None)
         sensitive = p.get(f"{_D}Sensitive") in ("True", "1")
         vals[f"$package::{(p.get(f'{_D}ObjectName') or '').lower()}"] = None if sensitive else value
+    vals |= {f"$package::{k}": v for k, v in (project.package_values if project else {}).items()}
     for v in root.iter(f"{_D}Variable"):
         if v.get(f"{_D}EvaluateAsExpression") in ("True", "1"):
             continue

@@ -51,6 +51,10 @@ For each failed (or unexpectedly ended) execution:
   of the connection the failing task uses, as that run saw them, marked `(overridden for
   this run)` when a job step or caller set them with `/Par`. A job that points `TargetDb`
   at a read-only history database shows up right here. Sensitive values are never read.
+- **database**: the database the failing task's connection pointed at in that run (for a failing data
+  flow component, its own connection's, named in `database_connection`): the connection's expression or
+  connection string evaluated with the run's parameter values, overrides included, as `outline` and `deps`
+  work it out.
 - **override_note**: when one of those parameters was overridden, says that the value came
   from the caller (e.g. the SQL Agent job step's `/Par "$Project::TargetDb";...`), not from
   the project or environment, and points at `ssisbliss jobs` to see it. The fix belongs

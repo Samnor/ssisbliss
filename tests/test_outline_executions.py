@@ -80,6 +80,7 @@ def test_failed_sql_task_shows_statement_and_the_parameters_its_connection_used(
     [t] = e["failed_tasks"]
     assert t["kind"] == "sql" and t["sql"].startswith("INSERT dbo.LoadLog")
     assert t["connection_parameters"] == {"TargetDb": "GOLD_ARCHIVE (overridden for this run)", "TargetServer": "LAB\\SQL01"}
+    assert t["database"] == "gold_archive"      # its connection's database with this run's values
     # says where the override lives, so the fix goes to the job step and not the package
     note = t["override_note"]
     assert note.startswith("TargetDb came from the caller (NT SERVICE\\SQLAgent)")

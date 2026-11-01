@@ -72,8 +72,10 @@ def run(lab, iid: str, version: str, out: Path, only: list[str] | None = None) -
         d = first_json(raw)
         ok = (d.get("broken_verdict") == "failed at 3 SILVER" and str(d.get("history_next", "")).startswith("ssisbliss executions --id")
               and d.get("failed_task_kind") == "sql" and d.get("failed_task_target_db") == "GOLD_ARCHIVE"
+              and d.get("failed_task_database") == "gold_archive"
               and str(d.get("skipped_verdict", "")).startswith("stopped after 2 BRONZE") and "quit reporting success" in str(d.get("skipped_why")))
-        return ok, f"broken: {d.get('broken_verdict')}; skipped: {d.get('skipped_verdict')}", raw
+        return ok, (f"broken: {d.get('broken_verdict')}, failed task's database {d.get('failed_task_database')}; "
+                    f"skipped: {d.get('skipped_verdict')}"), raw
     check("agent-chain", agent)
 
     def items_remove():

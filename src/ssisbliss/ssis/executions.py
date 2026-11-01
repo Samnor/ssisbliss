@@ -8,6 +8,7 @@ from .catalog import Catalog
 from .dtsx import as_editable
 from .ispac import Ispac
 from .known_errors import explain
+from .model import Package, ProjectInfo
 from .outline import flatten, outline
 
 STATUS = {1: "created", 2: "running", 3: "canceled", 4: "failed", 5: "pending", 6: "ended_unexpectedly",
@@ -19,6 +20,7 @@ _TASK_FIELDS = ("kind", "connection", "sql", "sql_source", "runs", "executable",
 
 
 def report(catalog: Catalog, rows: list[dict], details: bool = True, max_messages: int = 5) -> list[dict]:
+    # (folder, project, package) -> {"outline", "data" (the package), "managers" (the project's .conmgr)} or None
     outlines: dict[tuple[str, str, str], dict | None] = {}
     out = []
     for r in rows:
@@ -80,7 +82,14 @@ def _failure(catalog: Catalog, r: dict, outlines: dict, max_messages: int) -> di
         found = _find_task(catalog, r, t["package"], t["path"], outlines)
         if found:
             t.update({k: found[k] for k in _TASK_FIELDS if k in found})
-            used = _connection_parameters(outlines[(r["folder_name"], r["project_name"], t["package"])], found)
+            cached = outlines[(r["folder_name"], r["project_name"], t["package"])]
+            if found.get("connection") or t.get("component"):
+                if params is None:
+                    params = catalog.execution_parameters(r["execution_id"])
+                where = _run_database(cached, params, t, found, t["package"] == r["package_name"])
+                if where:
+                    t.update(where)
+            used = _connection_parameters(cached["outline"] if cached else None, found)
             if used:
                 if params is None:
                     params = catalog.execution_parameters(r["execution_id"])
@@ -123,13 +132,41 @@ def _find_task(catalog: Catalog, r: dict, package: str, path: str, outlines: dic
     if key not in outlines:
         try:
             ispac = Ispac(catalog.get_project(r["folder_name"], r["project_name"]))
-            outlines[key] = outline(as_editable(ispac.package(package))) if package in ispac.package_names else None
+            if package in ispac.package_names:
+                data = as_editable(ispac.package(package))
+                outlines[key] = {"outline": outline(data), "data": data, "managers": [
+                    ispac.parts[f][1] for f in ispac.connection_manager_files if f in ispac.parts]}
+            else:
+                outlines[key] = None
         except Exception:   # project deleted, no permission: report without task details
             outlines[key] = None
-    o = outlines[key]
+    o = outlines[key] and outlines[key]["outline"]
     if not o:
         return None
     return next((t for t in flatten(o["tasks"]) if _norm(t["path"]) == path), None)
+
+
+def _run_database(cached: dict | None, params: list[dict], t: dict, found: dict, entry_point: bool) -> dict:
+    """The database the failing task (or its failing data flow component) used in this run: its connection's
+    expression or connection string evaluated with the parameter values the run had (execution_parameter_values,
+    overrides included). Package parameters only apply to the package the execution started."""
+    if not cached:
+        return {}
+    def of(scope: int) -> dict[str, str | None]:
+        return {p["parameter_name"].lower(): None if p["sensitive"] else p["parameter_value"]
+                for p in params if p.get("object_type", 20) == scope}
+    package = Package.parse(cached["data"], ProjectInfo("", of(20), cached["managers"],
+                                                        package_values=of(30) if entry_point else {}))
+    task = next((x for x in package.every_task if _norm(x.path) == t["path"]), None)
+    if task is None:
+        return {}
+    conn = task.connection
+    if t.get("component"):
+        comp = next((c for c in task.components if c.name == t["component"]), None)
+        conn = comp.connection if comp else conn
+    if conn is None or not conn.database:
+        return {}
+    return {"database": conn.database, **({"database_connection": conn.name} if conn.name != found.get("connection") else {})}
 
 
 def _connection_parameters(o: dict | None, task: dict) -> set[str]:

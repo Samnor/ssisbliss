@@ -86,3 +86,30 @@ def test_expressions_evaluate_only_what_they_can():
         "Data Source=srv;Initial Catalog=SALES"
     assert evaluate('@[$Project::Missing]', vals) is None
     assert evaluate('UPPER(@[$Project::Db])', vals) is None       # a function: not followed
+
+
+def test_a_failed_data_flow_says_which_database_its_component_used():
+    """executions: the failing component's own connection, with the values this run had."""
+    from ssisbliss.ssis.executions import report
+    from ssisbliss.ssis.fake import FakeCatalog, ispac
+    cat = FakeCatalog()
+    cat.add_project("SILVER", "SILVER", ispac("SILVER", {"Load_Customer.dtsx": depscases.PACKAGES["SILVER"]["Load_Customer.dtsx"]},
+                                              parameters=["SourceDb", "TargetDb"]))
+    cat.execution_rows = [{"execution_id": 9, "folder_name": "SILVER", "project_name": "SILVER", "status": 4,
+                           "package_name": "Load_Customer.dtsx", "environment_folder_name": None, "environment_name": None,
+                           "caller_name": "agent", "executed_as_name": "agent", "start_time": "2099-01-01T01:00:00",
+                           "end_time": "2099-01-01T01:00:01", "duration_s": 1, "server_name": "S"}]
+    cat.event_rows = {9: [{"event_message_id": 1, "message_time": "", "message_type": 120, "message_source_type": 40,
+                           "execution_path": "", "message_source_name": "Copy", "package_name": "Load_Customer.dtsx",
+                           "package_path": "\\Package\\Copy", "subcomponent_name": "Read",
+                           "message": "Copy:Error: Cannot open database requested by the login."}]}
+    cat.parameter_rows = {9: [{"object_type": 20, "parameter_name": n, "parameter_value": v, "sensitive": False,
+                               "runtime_override": False} for n, v in (("SourceDb", "BRONZE_PROD"), ("TargetDb", "SILVER_PROD"))]}
+    [e] = report(cat, cat.executions(execution_id=9))
+    [t] = e["failed_tasks"]
+    assert (t["component"], t["database"], t["database_connection"]) == ("Read", "bronze_prod", "Source")
+
+
+def test_package_parameters_set_from_outside_win():
+    data = depscases.layer_package("P.dtsx", ["SELECT 1"]).replace(b"@[$Project::TargetDb]", b"@[$Package::Db]")
+    assert Package.parse(data, ProjectInfo(package_values={"db": "SALES"})).connection("Target").database == "sales"

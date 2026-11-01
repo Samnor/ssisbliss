@@ -28,6 +28,8 @@
   read it. Their output is unchanged, except that `outline` now shows each connection's `database`, for a
   file from the project's parameters and for a deployed package from the catalog and its environments.
   Tasks are put in run order in linear time: `lint` on a package with 2000 statements takes half the time.
+- `executions`: a failing task says which `database` its connection pointed at in that run (a failing data
+  flow component, its own connection's), worked out from the run's parameter values, overrides included.
 - A mistyped command suggests the commands that start with it first (`deploy`: `deploy-packages`,
   `deploy-project`).
 - A rollback plan says when it undoes only your own deploys; a build refused for its protection level

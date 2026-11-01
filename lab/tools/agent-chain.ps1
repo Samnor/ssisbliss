@@ -16,6 +16,7 @@ try {
     $ex = (& $ssis executions @a --id $hist.ssis_execution_id | Out-String | ConvertFrom-Json).executions[0]
     $out.failed_task_kind = $ex.failed_tasks[0].kind
     $out.failed_task_target_db = $ex.failed_tasks[0].connection_parameters.TargetDb
+    $out.failed_task_database = $ex.failed_tasks[0].database
 } finally {
     Sql "EXEC SSISDB.catalog.set_environment_variable_value @folder_name=N'SILVER', @environment_name=N'Default', @variable_name=N'TargetDb', @value=N'SILVER';" | Out-Null
 }
